@@ -1,0 +1,12 @@
+{
+  "name": "serenedge",
+  "owner": { "name": "SerenEdge" },
+  "description": "SerenEdge delivery platform command pack for Claude Code.",
+  "plugins": [
+    {
+      "name": "serenedge",
+      "source": "./",
+      "description": "SerenEdge delivery platform: claim, work and submit tasks from your coding agent."
+    }
+  ]
+}

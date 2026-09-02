@@ -102,7 +102,7 @@ serenedge install claude-code
 
 For Codex, run `serenedge install codex` instead: it merges an MCP server block into `~/.codex/config.toml` and prints an `AGENTS.md` snippet describing the claim, work and submit loop to add to your repo.
 
-For Claude Code, `install claude-code` copies the plugin locally and runs `claude plugin add` on it (or prints the command if Claude Code isn't on your `PATH`). It registers the `serenedge` MCP server and this command pack:
+For Claude Code, `install claude-code` copies the plugin locally, registers it as a marketplace, and installs it from there (or prints the two commands if Claude Code isn't on your `PATH`). It registers the `serenedge` MCP server and this command pack:
 
 | Command             | What it does                                                        |
 | -------------------- | --------------------------------------------------------------------- |

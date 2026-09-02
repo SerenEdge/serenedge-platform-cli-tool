@@ -225,13 +225,21 @@ function installClaudeCode(): void {
   cpSync(source, target, { recursive: true });
   console.log(`Copied the SerenEdge command pack to ${target}`);
 
-  const added = spawnSync("claude", ["plugin", "add", target], { stdio: "inherit" });
+  const added = spawnSync("claude", ["plugin", "marketplace", "add", target], {
+    stdio: "inherit",
+  });
   if (added.status === 0) {
-    console.log("Registered the plugin with Claude Code.");
-    return;
+    const installed = spawnSync("claude", ["plugin", "install", "serenedge@serenedge", "-y"], {
+      stdio: "inherit",
+    });
+    if (installed.status === 0) {
+      console.log("Registered the plugin with Claude Code.");
+      return;
+    }
   }
-  console.log("\nRun this to finish (Claude Code was not on PATH or the command failed):");
-  console.log(`  claude plugin add ${target}`);
+  console.log("\nRun these to finish (Claude Code was not on PATH or a command failed):");
+  console.log(`  claude plugin marketplace add ${target}`);
+  console.log("  claude plugin install serenedge@serenedge");
   console.log("Or add just the MCP server:");
   console.log("  claude mcp add serenedge -- npx serenedge mcp");
 }
