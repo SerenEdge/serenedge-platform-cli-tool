@@ -1,0 +1,38 @@
+{
+  "name": "serenedge",
+  "version": "1.0.0",
+  "description": "CLI and MCP server for the SerenEdge delivery platform - lets your coding agent claim, work and submit tasks.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "serenedge": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "plugins"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SerenEdge/serenedge-platform-cli-tool.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "commander": "^15.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsup": "^8.5.1",
+    "typescript": "5.9.2",
+    "vitest": "^4.1.11"
+  }
+}
