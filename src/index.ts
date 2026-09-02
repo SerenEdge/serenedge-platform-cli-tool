@@ -241,7 +241,7 @@ function installClaudeCode(): void {
   console.log(`  claude plugin marketplace add ${target}`);
   console.log("  claude plugin install serenedge@serenedge");
   console.log("Or add just the MCP server:");
-  console.log("  claude mcp add serenedge -- npx serenedge mcp");
+  console.log("  claude mcp add serenedge -- serenedge mcp");
 }
 
 function installCodex(): void {

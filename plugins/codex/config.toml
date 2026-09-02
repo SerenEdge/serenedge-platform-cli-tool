@@ -2,5 +2,5 @@
 # `serenedge install codex` merges this block into ~/.codex/config.toml.
 
 [mcp_servers.serenedge]
-command = "npx"
-args = ["serenedge", "mcp"]
+command = "serenedge"
+args = ["mcp"]
