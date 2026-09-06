@@ -2,43 +2,26 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-export type ServerOptions = { url: string; token: string };
+export type ServerContext = {
+  url: string;
+  token: string;
+  /** Project slug for the directory this server was launched in, or null. */
+  project: string | null;
+  /** Display name of the signed-in user, for `serenedge_status`. */
+  user: string | null;
+};
+
+/** Re-read per tool call so a project switch needs no reconnect (A-081). */
+export type ContextResolver = () => ServerContext | { error: string };
+
+/** Persists a project mapping. Supplied by the CLI, which owns config.json. */
+export type ProjectWriter = (slug: string) => void;
 
 type ApiResult = { ok: true; data: unknown } | { ok: false; error: string };
 
-function makeApi({ url, token }: ServerOptions) {
-  const base = url.replace(/\/$/, "");
-  return async function api(
-    path: string,
-    init?: { method?: string; body?: unknown },
-  ): Promise<ApiResult> {
-    let res: Response;
-    try {
-      res = await fetch(`${base}${path}`, {
-        method: init?.method ?? "GET",
-        headers: {
-          authorization: `Bearer ${token}`,
-          ...(init?.body ? { "content-type": "application/json" } : {}),
-        },
-        body: init?.body ? JSON.stringify(init.body) : undefined,
-      });
-    } catch (error) {
-      return { ok: false, error: `Could not reach ${base}: ${(error as Error).message}` };
-    }
-    const text = await res.text();
-    let json: unknown;
-    try {
-      json = text ? JSON.parse(text) : {};
-    } catch {
-      json = { error: text };
-    }
-    if (!res.ok) {
-      const message = (json as { error?: string }).error ?? `Request failed (${res.status})`;
-      return { ok: false, error: message };
-    }
-    return { ok: true, data: json };
-  };
-}
+const NOT_MAPPED =
+  "This repo is not mapped to a SerenEdge project. Call `list_my_projects` and then " +
+  "`switch_project`, or run `serenedge project use <slug>` in a terminal.";
 
 function textResult(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -48,10 +31,65 @@ function errorResult(message: string) {
   return { isError: true, content: [{ type: "text" as const, text: message }] };
 }
 
-/** Builds the MCP server with the six SerenEdge tools bound to `opts`. */
-export function buildServer(opts: ServerOptions): McpServer {
-  const api = makeApi(opts);
+async function callApi(
+  ctx: ServerContext,
+  path: string,
+  init?: { method?: string; body?: unknown },
+): Promise<ApiResult> {
+  const base = ctx.url.replace(/\/$/, "");
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      method: init?.method ?? "GET",
+      headers: {
+        authorization: `Bearer ${ctx.token}`,
+        ...(init?.body ? { "content-type": "application/json" } : {}),
+      },
+      body: init?.body ? JSON.stringify(init.body) : undefined,
+    });
+  } catch (error) {
+    return { ok: false, error: `Could not reach ${base}: ${(error as Error).message}` };
+  }
+  const text = await res.text();
+  let json: unknown;
+  try {
+    json = text ? JSON.parse(text) : {};
+  } catch {
+    json = { error: text };
+  }
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: (json as { error?: string }).error ?? `Request failed (${res.status})`,
+    };
+  }
+  return { ok: true, data: json };
+}
+
+/** Builds the MCP server with the SerenEdge tools bound to a context resolver. */
+export function buildServer(resolve: ContextResolver, writeProject: ProjectWriter): McpServer {
   const server = new McpServer({ name: "serenedge", version: "0.0.0" });
+
+  /** Resolves context or returns the tool error to hand straight back. */
+  function ctx(): ServerContext | { error: string } {
+    return resolve();
+  }
+
+  /** Runs an API call after resolving; short-circuits when not signed in. */
+  async function api(path: string, init?: { method?: string; body?: unknown }): Promise<ApiResult> {
+    const c = ctx();
+    if ("error" in c) return { ok: false, error: c.error };
+    return callApi(c, path, init);
+  }
+
+  /** Explicit argument wins, then the current project, else an error. */
+  function pickProject(explicit?: string): { slug: string } | { error: string } {
+    if (explicit) return { slug: explicit };
+    const c = ctx();
+    if ("error" in c) return { error: c.error };
+    if (!c.project) return { error: NOT_MAPPED };
+    return { slug: c.project };
+  }
 
   server.registerTool(
     "list_my_tasks",
@@ -60,8 +98,11 @@ export function buildServer(opts: ServerOptions): McpServer {
       inputSchema: { project: z.string().optional() },
     },
     async ({ project }) => {
+      const c = ctx();
+      if ("error" in c) return errorResult(c.error);
+      const slug = project ?? c.project;
       const res = await api(
-        `/api/agent/tasks${project ? `?project=${encodeURIComponent(project)}` : ""}`,
+        `/api/agent/tasks${slug ? `?project=${encodeURIComponent(slug)}` : ""}`,
       );
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
@@ -160,11 +201,14 @@ export function buildServer(opts: ServerOptions): McpServer {
   server.registerTool(
     "get_project_summary",
     {
-      description: "Schedule status, milestone progress and task counts for a project slug.",
-      inputSchema: { project: z.string() },
+      description:
+        "Schedule status, milestone progress and task counts. Defaults to the current project.",
+      inputSchema: { project: z.string().optional() },
     },
     async ({ project }) => {
-      const res = await api(`/api/agent/projects/${encodeURIComponent(project)}/summary`);
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(`/api/agent/projects/${encodeURIComponent(picked.slug)}/summary`);
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
   );
@@ -188,12 +232,14 @@ export function buildServer(opts: ServerOptions): McpServer {
     "ask_kb",
     {
       description:
-        "Search a project's knowledge base for a question and get back the most relevant entries (key, title, body). No answer is synthesized: read the entries and write the answer yourself.",
-      inputSchema: { project: z.string(), question: z.string() },
+        "Search a project's knowledge base for a question and get back the most relevant entries (key, title, body). No answer is synthesized: read the entries and write the answer yourself. Defaults to the current project.",
+      inputSchema: { project: z.string().optional(), question: z.string() },
     },
     async ({ project, question }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
       const res = await api(
-        `/api/agent/kb/ask?project=${encodeURIComponent(project)}&q=${encodeURIComponent(question)}`,
+        `/api/agent/kb/ask?project=${encodeURIComponent(picked.slug)}&q=${encodeURIComponent(question)}`,
       );
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
@@ -318,13 +364,15 @@ export function buildServer(opts: ServerOptions): McpServer {
     "submit_plan",
     {
       description:
-        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries.",
-      inputSchema: { project: z.string(), plan: z.any(), apply: z.boolean().optional() },
+        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries. Defaults to the current project.",
+      inputSchema: { project: z.string().optional(), plan: z.any(), apply: z.boolean().optional() },
     },
     async ({ project, plan, apply }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
       const res = await api("/api/agent/plan", {
         method: "POST",
-        body: { project, plan, apply: apply ?? false },
+        body: { project: picked.slug, plan, apply: apply ?? false },
       });
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
@@ -334,13 +382,15 @@ export function buildServer(opts: ServerOptions): McpServer {
     "draft_tasks_context",
     {
       description:
-        "Get the raw materials to draft plan-schema tasks from a description: project conventions, the closest KB entries, an example plan, and the drafter prompt. Draft the tasks yourself, then call submit_plan with apply:false to preview and apply:true once approved. Requires task.create.",
-      inputSchema: { project: z.string(), intent: z.string() },
+        "Get the raw materials to draft plan-schema tasks from a description: project conventions, the closest KB entries, an example plan, and the drafter prompt. Draft the tasks yourself, then call submit_plan with apply:false to preview and apply:true once approved. Requires task.create. Defaults to the current project.",
+      inputSchema: { project: z.string().optional(), intent: z.string() },
     },
     async ({ project, intent }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
       const res = await api("/api/agent/draft-tasks-context", {
         method: "POST",
-        body: { project, intent },
+        body: { project: picked.slug, intent },
       });
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
@@ -350,11 +400,13 @@ export function buildServer(opts: ServerOptions): McpServer {
     "get_risk_context",
     {
       description:
-        "Compute a fresh risk summary (stale in-review tasks, over-capacity developers, the longest blocked chain, overdue tasks, KB entries that may be out of date) and get a prompt to write a short narrative from it. Write the narrative yourself, then call submit_risk_narrative. Requires plan.write.",
-      inputSchema: { project: z.string() },
+        "Compute a fresh risk summary (stale in-review tasks, over-capacity developers, the longest blocked chain, overdue tasks, KB entries that may be out of date) and get a prompt to write a short narrative from it. Write the narrative yourself, then call submit_risk_narrative. Requires plan.write. Defaults to the current project.",
+      inputSchema: { project: z.string().optional() },
     },
     async ({ project }) => {
-      const res = await api(`/api/agent/risk/context?project=${encodeURIComponent(project)}`);
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(`/api/agent/risk/context?project=${encodeURIComponent(picked.slug)}`);
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
   );
@@ -379,14 +431,77 @@ export function buildServer(opts: ServerOptions): McpServer {
     "get_revision",
     {
       description:
-        "Read a client revision request by key (e.g. REV-3) for a project slug, so you can plan the tasks it needs. Requires revision.plan.",
-      inputSchema: { project: z.string(), key: z.string() },
+        "Read a client revision request by key (e.g. REV-3) for a project slug, so you can plan the tasks it needs. Requires revision.plan. Defaults to the current project.",
+      inputSchema: { project: z.string().optional(), key: z.string() },
     },
     async ({ project, key }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
       const res = await api(
-        `/api/agent/revisions/${encodeURIComponent(key)}?project=${encodeURIComponent(project)}`,
+        `/api/agent/revisions/${encodeURIComponent(key)}?project=${encodeURIComponent(picked.slug)}`,
       );
       return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "list_my_projects",
+    {
+      description:
+        "Every SerenEdge project you can work in, with your roles and open task count. The one mapped to this repo is marked `current`.",
+      inputSchema: {},
+    },
+    async () => {
+      const c = ctx();
+      if ("error" in c) return errorResult(c.error);
+      const res = await callApi(c, "/api/agent/projects");
+      if (!res.ok) return errorResult(res.error);
+      const { projects = [] } = res.data as {
+        projects?: { slug: string; name: string; status: string }[];
+      };
+      return textResult({
+        current: c.project,
+        projects: projects.map((p) => ({ ...p, current: p.slug === c.project })),
+      });
+    },
+  );
+
+  server.registerTool(
+    "switch_project",
+    {
+      description:
+        "Map this repo to a SerenEdge project. Takes effect on the next tool call, no reconnect needed.",
+      inputSchema: { slug: z.string() },
+    },
+    async ({ slug }) => {
+      const c = ctx();
+      if ("error" in c) return errorResult(c.error);
+      const res = await callApi(c, "/api/agent/projects");
+      if (!res.ok) return errorResult(res.error);
+      const { projects = [] } = res.data as { projects?: { slug: string }[] };
+      const valid = projects.map((p) => p.slug);
+      if (!valid.includes(slug)) {
+        return errorResult(
+          `You are not a member of "${slug}". Your projects: ${valid.join(", ") || "(none)"}.`,
+        );
+      }
+      writeProject(slug);
+      return textResult({ current: slug, switched: true });
+    },
+  );
+
+  server.registerTool(
+    "serenedge_status",
+    {
+      description:
+        "Whether this machine is signed in, as whom, and which project this repo maps to.",
+      inputSchema: {},
+    },
+    async () => {
+      const c = ctx();
+      if ("error" in c) return textResult({ signedIn: false, reason: c.error });
+      // Never include the token.
+      return textResult({ signedIn: true, url: c.url, user: c.user, project: c.project });
     },
   );
 
@@ -394,7 +509,10 @@ export function buildServer(opts: ServerOptions): McpServer {
 }
 
 /** Entry point for `serenedge mcp`: serve the tools over stdio. */
-export async function startStdioServer(opts: ServerOptions): Promise<void> {
-  const server = buildServer(opts);
+export async function startStdioServer(
+  resolve: ContextResolver,
+  writeProject: ProjectWriter,
+): Promise<void> {
+  const server = buildServer(resolve, writeProject);
   await server.connect(new StdioServerTransport());
 }

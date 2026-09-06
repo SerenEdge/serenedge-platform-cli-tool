@@ -6,7 +6,16 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { clearConfig, configDir, configLocation, readConfig, writeConfig } from "./config.js";
+import {
+  clearConfig,
+  configDir,
+  configLocation,
+  currentProject,
+  readConfig,
+  setCurrentProject,
+  writeConfig,
+} from "./config.js";
+import { buildStatus } from "./status.js";
 
 const PLUGINS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "plugins");
 
@@ -61,7 +70,17 @@ async function login(opts: { url?: string }): Promise<void> {
       error?: string;
     };
     if (tokenRes.ok && body.access_token) {
-      writeConfig({ url, token: body.access_token });
+      // Cache the user so `status --offline` can name them without a request.
+      let user: { name: string | null; email: string } | null = null;
+      try {
+        const meRes = await fetch(`${url}/api/agent/me`, {
+          headers: { authorization: `Bearer ${body.access_token}` },
+        });
+        if (meRes.ok) ({ user } = (await meRes.json()) as { user: typeof user });
+      } catch {
+        // Not fatal: status without --offline re-checks against the server.
+      }
+      writeConfig({ url, token: body.access_token, ...(user ? { user } : {}) });
       spin.stop("Approved");
       p.outro(`Signed in. Token stored at ${configLocation()}`);
       return;
@@ -205,13 +224,129 @@ async function updateCmd(id: string, opts: { set?: string; url?: string }): Prom
 }
 
 async function mcp(): Promise<void> {
+  const { startStdioServer } = await import("./mcp/index.js");
+  const cwd = process.cwd();
+  await startStdioServer(
+    () => {
+      const config = readConfig();
+      if (!config) {
+        return {
+          error:
+            "Not signed in to SerenEdge. Run `/serenedge setup` in Claude Code, or " +
+            "`serenedge login` in a terminal.",
+        };
+      }
+      return {
+        url: config.url,
+        token: config.token,
+        project: currentProject(cwd),
+        user: config.user?.name ?? config.user?.email ?? null,
+      };
+    },
+    (slug) => {
+      setCurrentProject(cwd, slug);
+    },
+  );
+}
+
+async function statusCmd(opts: { json?: boolean; offline?: boolean }): Promise<void> {
+  const payload = await buildStatus({ cwd: process.cwd(), offline: opts.offline === true });
+  if (opts.json) {
+    console.log(JSON.stringify(payload));
+    return;
+  }
+  if (!payload.signedIn) {
+    console.log(`Not signed in (${payload.state}). Run \`serenedge login\`.`);
+    return;
+  }
+  const who = payload.user?.name ?? payload.user?.email ?? "unknown user";
+  console.log(`Signed in as ${who} at ${payload.url}`);
+  console.log(payload.project ? `Project: ${payload.project}` : "No project mapped to this repo.");
+}
+
+/** Shape of one entry from `GET /api/agent/projects` (A-080). */
+type AgentProject = {
+  slug: string;
+  name: string;
+  status: string;
+  roles: string[];
+  open_tasks: number;
+};
+
+async function fetchProjects(): Promise<AgentProject[]> {
   const config = readConfig();
   if (!config) {
     console.error("Not signed in. Run `serenedge login`.");
     process.exit(1);
   }
-  const { startStdioServer } = await import("./mcp/index.js");
-  await startStdioServer({ url: config.url, token: config.token });
+  const res = await fetch(`${config.url.replace(/\/$/, "")}/api/agent/projects`, {
+    headers: { authorization: `Bearer ${config.token}` },
+  });
+  if (!res.ok) {
+    console.error(`Could not list projects (${res.status})`);
+    process.exit(1);
+  }
+  const { projects } = (await res.json()) as { projects: AgentProject[] };
+  return projects;
+}
+
+async function projectsCmd(opts: { json?: boolean }): Promise<void> {
+  const projects = await fetchProjects();
+  const current = currentProject(process.cwd());
+  if (opts.json) {
+    console.log(JSON.stringify({ current, projects }));
+    return;
+  }
+  if (projects.length === 0) {
+    console.log("You are not a member of any project.");
+    return;
+  }
+  for (const p of projects) {
+    const mark = p.slug === current ? "*" : " ";
+    const roles = p.roles.length > 0 ? ` [${p.roles.join(", ")}]` : "";
+    console.log(`${mark} ${p.slug}  ${p.name}${roles}  ${p.open_tasks} open`);
+  }
+}
+
+async function projectUseCmd(slug: string): Promise<void> {
+  const projects = await fetchProjects();
+  const valid = projects.map((p) => p.slug);
+  if (!valid.includes(slug)) {
+    console.error(
+      `You are not a member of "${slug}". Your projects: ${valid.join(", ") || "(none)"}.`,
+    );
+    process.exit(1);
+  }
+  const key = setCurrentProject(process.cwd(), slug);
+  console.log(`${key} -> ${slug}`);
+}
+
+function projectShowCmd(opts: { json?: boolean }): void {
+  const current = currentProject(process.cwd());
+  if (opts.json) {
+    console.log(JSON.stringify({ current }));
+    return;
+  }
+  console.log(current ?? "No project mapped to this repo. Run `serenedge project use <slug>`.");
+}
+
+function registerMcpServer(): void {
+  // Windows: a bare `spawn("serenedge")` is ENOENT (pnpm's global bin holds
+  // serenedge.CMD, and Node 20+ refuses to spawn a .CMD without a shell), so
+  // the registered command goes through cmd /c.
+  const args =
+    process.platform === "win32"
+      ? ["mcp", "add", "-s", "user", "serenedge", "--", "cmd", "/c", "serenedge", "mcp"]
+      : ["mcp", "add", "-s", "user", "serenedge", "--", "serenedge", "mcp"];
+
+  const added = spawnSync("claude", args, { stdio: "inherit" });
+  if (added.status === 0) {
+    console.log("Registered the serenedge MCP server under user scope.");
+    console.log("Restart Claude Code (or reconnect it from /mcp) before the tools appear.");
+    return;
+  }
+  console.log("\nCould not register the MCP server. Run this yourself:");
+  console.log(`  claude ${args.join(" ")}`);
 }
 
 function installClaudeCode(): void {
@@ -234,14 +369,14 @@ function installClaudeCode(): void {
     });
     if (installed.status === 0) {
       console.log("Registered the plugin with Claude Code.");
+      registerMcpServer();
       return;
     }
   }
   console.log("\nRun these to finish (Claude Code was not on PATH or a command failed):");
   console.log(`  claude plugin marketplace add ${target}`);
   console.log("  claude plugin install serenedge@serenedge");
-  console.log("Or add just the MCP server:");
-  console.log("  claude mcp add serenedge -- serenedge mcp");
+  registerMcpServer();
 }
 
 function installCodex(): void {
@@ -282,6 +417,30 @@ program
 program.command("logout").description("Remove the stored token").action(logout);
 program.command("whoami").description("Show the signed-in user").action(whoami);
 program.command("mcp").description("Start the MCP server over stdio").action(mcp);
+
+program
+  .command("status")
+  .description("Report whether this machine is set up and which project this repo maps to")
+  .option("--json", "Machine-readable output")
+  .option("--offline", "Skip the server check and trust the stored token")
+  .action(statusCmd);
+
+program
+  .command("projects")
+  .description("List the projects you can work in")
+  .option("--json", "Machine-readable output")
+  .action(projectsCmd);
+
+const project = program
+  .command("project")
+  .description("Show the project mapped to this repo")
+  .option("--json", "Machine-readable output")
+  .action(projectShowCmd);
+project
+  .command("use")
+  .argument("<slug>", "Project slug")
+  .description("Map this repo to a project")
+  .action(projectUseCmd);
 
 const env = program.command("env").description("Environment registry helpers");
 env

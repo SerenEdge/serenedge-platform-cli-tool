@@ -1,13 +1,7 @@
 {
   "name": "serenedge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SerenEdge delivery platform: claim, work and submit tasks from your coding agent.",
   "author": { "name": "SerenEdge" },
-  "commands": "./commands",
-  "mcpServers": {
-    "serenedge": {
-      "command": "serenedge",
-      "args": ["mcp"]
-    }
-  }
+  "commands": "./commands"
 }

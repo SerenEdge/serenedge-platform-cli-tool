@@ -3,11 +3,16 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildServer } from "./index.js";
 
-const OPTS = { url: "http://api.test", token: "tok-123" };
+const RESOLVE = () => ({
+  url: "http://api.test",
+  token: "tok-123",
+  project: null as string | null,
+  user: "Tester",
+});
 
 async function connectedClient() {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = buildServer(OPTS);
+  const server = buildServer(RESOLVE, vi.fn());
   const client = new Client({ name: "test", version: "0.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   return client;
@@ -41,13 +46,16 @@ describe("mcp server", () => {
       "get_task",
       "get_task_thread",
       "ignore_env_name",
+      "list_my_projects",
       "list_my_tasks",
       "propose_kb",
       "register_env_var",
+      "serenedge_status",
       "start_task",
       "submit_for_review",
       "submit_plan",
       "submit_risk_narrative",
+      "switch_project",
     ]);
   });
 
