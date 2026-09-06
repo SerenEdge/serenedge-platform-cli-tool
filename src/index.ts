@@ -19,7 +19,7 @@ import { buildStatus } from "./status.js";
 
 const PLUGINS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "plugins");
 
-const DEFAULT_URL = process.env.SERENEDGE_URL ?? "http://localhost:3000";
+const DEFAULT_URL = process.env.SERENEDGE_URL ?? "https://platform.serenedge.com";
 
 function openBrowser(url: string): void {
   const cmd =
