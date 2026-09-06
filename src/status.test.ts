@@ -1,9 +1,17 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { writeConfig } from "./config.js";
+import { readConfig, recordAuthResult, setCurrentProject, writeConfig } from "./config.js";
 import { buildStatus } from "./status.js";
+
+/** A temp repo (with a .git marker) mapped to `slug`. Caller removes it. */
+function mappedRepo(slug: string): string {
+  const repo = mkdtempSync(join(tmpdir(), "serenedge-status-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  setCurrentProject(repo, slug);
+  return repo;
+}
 
 let home: string;
 const originalXdg = process.env.XDG_CONFIG_HOME;
@@ -37,12 +45,81 @@ describe("buildStatus", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("offline reports ready with a token and a mapped project", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    writeConfig({ url: "http://x", token: "t", user: { name: "A", email: "a@b.c" } });
+    const repo = mappedRepo("acme");
+    const s = await buildStatus({ cwd: repo, offline: true });
+    expect(s).toMatchObject({
+      installed: true,
+      signedIn: true,
+      url: "http://x",
+      project: "acme",
+      state: "ready",
+    });
+    expect(s.user).toEqual({ name: "A", email: "a@b.c" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("online reports ready when the server accepts the token", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ user: { name: "A", email: "a@b.c" } }), { status: 200 }),
+        ),
+    );
+    writeConfig({ url: "http://x", token: "t" });
+    const repo = mappedRepo("acme");
+    const s = await buildStatus({ cwd: repo, offline: false });
+    expect(s).toMatchObject({ signedIn: true, project: "acme", state: "ready" });
+    expect(s.user).toEqual({ name: "A", email: "a@b.c" });
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("offline reports token_rejected once a 401 has been recorded", async () => {
+    // The session-start hook always passes --offline and makes no request, so
+    // a revoked token is only visible here through the recorded flag.
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    writeConfig({ url: "http://x", token: "t", user: { name: "A", email: "a@b.c" } });
+    const repo = mappedRepo("acme");
+    // What a 401 from an MCP tool or a CLI command leaves behind.
+    recordAuthResult(false);
+
+    const s = await buildStatus({ cwd: repo, offline: true });
+    expect(s.state).toBe("token_rejected");
+    expect(s.signedIn).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    rmSync(repo, { recursive: true, force: true });
+  });
+
+  it("online clears a recorded rejection when the token works again", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ user: { name: "A", email: "a@b.c" } }), { status: 200 }),
+        ),
+    );
+    writeConfig({ url: "http://x", token: "t", tokenRejectedAt: "2026-09-06T00:00:00.000Z" });
+    const s = await buildStatus({ cwd: process.cwd(), offline: false });
+    expect(s.signedIn).toBe(true);
+    expect(readConfig()?.tokenRejectedAt).toBeUndefined();
+  });
+
   it("reports token_rejected on a 401", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("", { status: 401 })));
     writeConfig({ url: "http://x", token: "t" });
     const s = await buildStatus({ cwd: process.cwd(), offline: false });
     expect(s.state).toBe("token_rejected");
     expect(s.signedIn).toBe(false);
+    // Recorded, so the next --offline probe (the session hook) knows too.
+    expect(readConfig()?.tokenRejectedAt).toBeTruthy();
   });
 
   it("reports unreachable when the request throws", async () => {

@@ -1,5 +1,13 @@
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -13,12 +21,45 @@ import {
   configLocation,
   currentProject,
   readConfig,
+  recordAuthResult,
   setCurrentProject,
   writeConfig,
 } from "./config.js";
 import { buildStatus } from "./status.js";
 
-const PLUGINS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "plugins");
+/** `dist/index.js` when bundled, `src/index.ts` from source: both sit one
+ * directory below the package root, so the same relative walk works for each. */
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+const PLUGINS_DIR = join(PACKAGE_ROOT, "plugins");
+
+/**
+ * Read from package.json at runtime rather than hardcoded: the published
+ * package and this repo's workspace copy carry different version numbers, and
+ * `serenedge --version` is how a user tells the two builds apart.
+ */
+function cliVersion(): string {
+  try {
+    const raw = readFileSync(join(PACKAGE_ROOT, "package.json"), "utf8");
+    return (JSON.parse(raw) as { version?: string }).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Records what an authenticated response says about the stored token, so
+ * `status --offline` (and the local-only session hook) can report a revoked
+ * token instead of claiming the machine is signed in. Only 401 and success
+ * carry that information; any other status leaves the flag alone, and so does
+ * a `--url` override: another host's 401 says nothing about the token stored
+ * for the host the user is signed in to.
+ */
+function noteAuth(res: Response, base: string, configUrl: string): void {
+  if (base.replace(/\/$/, "") !== configUrl.replace(/\/$/, "")) return;
+  if (res.status === 401) recordAuthResult(false);
+  else if (res.ok) recordAuthResult(true);
+}
 
 const DEFAULT_URL = process.env.SERENEDGE_URL ?? "https://platform.serenedge.com";
 
@@ -113,6 +154,7 @@ async function whoami(): Promise<void> {
   const res = await fetch(`${config.url}/api/agent/me`, {
     headers: { authorization: `Bearer ${config.token}` },
   });
+  noteAuth(res, config.url, config.url);
   if (res.status === 401) {
     console.error("Token rejected. Run `serenedge login` again.");
     process.exit(1);
@@ -149,6 +191,7 @@ async function envCheck(opts: { project?: string; env?: string; url?: string }):
     )}`,
     { headers: { authorization: `Bearer ${config.token}` } },
   );
+  noteAuth(res, base, config.url);
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     console.error(body.error ?? `Request failed (${res.status})`);
@@ -186,6 +229,7 @@ async function updateCmd(id: string, opts: { set?: string; url?: string }): Prom
       headers: { ...authHeader, "content-type": "application/json" },
       body: JSON.stringify({ body }),
     });
+    noteAuth(res, base, config.url);
     const json = (await res.json().catch(() => ({}))) as { error?: string; title?: string };
     if (!res.ok) {
       console.error(json.error ?? `Request failed (${res.status})`);
@@ -198,6 +242,7 @@ async function updateCmd(id: string, opts: { set?: string; url?: string }): Prom
   }
 
   const res = await fetch(endpoint, { headers: authHeader });
+  noteAuth(res, base, config.url);
   const json = (await res.json().catch(() => ({}))) as {
     error?: string;
     title?: string;
@@ -247,6 +292,11 @@ async function mcp(): Promise<void> {
     (slug) => {
       setCurrentProject(cwd, slug);
     },
+    // The MCP server never touches config.json itself; it reports the outcome
+    // and the CLI records it, the same separation as the project writer above.
+    (ok) => {
+      recordAuthResult(ok);
+    },
   );
 }
 
@@ -295,6 +345,7 @@ async function fetchProjects(): Promise<AgentProject[]> {
   const res = await fetch(`${config.url.replace(/\/$/, "")}/api/agent/projects`, {
     headers: { authorization: `Bearer ${config.token}` },
   });
+  noteAuth(res, config.url, config.url);
   if (!res.ok) {
     console.error(`Could not list projects (${res.status})`);
     process.exit(1);
@@ -362,6 +413,39 @@ function registerMcpServer(): void {
   console.log(`  claude ${args.join(" ")}`);
 }
 
+/**
+ * Replaces the installed command pack with the shipped one, so a file deleted
+ * from the plugin does not survive an upgrade (`cpSync` over the existing
+ * directory only ever adds and overwrites: that is how a renamed
+ * `hooks/session-start.cmd` outlived a reinstall).
+ *
+ * Everything under the target is copied from `plugins/claude-code`, so
+ * replacing it wholesale loses nothing the user wrote. The swap is two
+ * renames inside one directory with a fixed-name backup, and a kill between
+ * them is recovered on the next run by the restore below, so an interrupted
+ * install never leaves the user with no plugin.
+ */
+function installPluginFiles(source: string, target: string): void {
+  const incoming = `${target}.incoming`;
+  const previous = `${target}.previous`;
+
+  // Recover an install that was killed between the two renames.
+  if (!existsSync(target) && existsSync(previous)) renameSync(previous, target);
+
+  rmSync(incoming, { recursive: true, force: true });
+  cpSync(source, incoming, { recursive: true });
+  rmSync(previous, { recursive: true, force: true });
+  if (existsSync(target)) renameSync(target, previous);
+  try {
+    renameSync(incoming, target);
+  } catch (error) {
+    // Put the working copy back rather than leaving the user with nothing.
+    if (!existsSync(target) && existsSync(previous)) renameSync(previous, target);
+    throw error;
+  }
+  rmSync(previous, { recursive: true, force: true });
+}
+
 function installClaudeCode(): void {
   const source = join(PLUGINS_DIR, "claude-code");
   if (!existsSync(source)) {
@@ -370,7 +454,7 @@ function installClaudeCode(): void {
   }
   const target = join(configDir(), "plugins", "claude-code");
   mkdirSync(dirname(target), { recursive: true });
-  cpSync(source, target, { recursive: true });
+  installPluginFiles(source, target);
   console.log(`Copied the SerenEdge command pack to ${target}`);
 
   const added = spawnSync("claude", ["plugin", "marketplace", "add", target], {
@@ -419,7 +503,7 @@ function install(agent: string): void {
 }
 
 const program = new Command();
-program.name("serenedge").description("SerenEdge delivery platform CLI").version("0.0.0");
+program.name("serenedge").description("SerenEdge delivery platform CLI").version(cliVersion());
 
 program
   .command("login")

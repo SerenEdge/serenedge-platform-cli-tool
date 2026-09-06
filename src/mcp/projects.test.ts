@@ -8,12 +8,12 @@ function text(res: unknown): string {
   return content[0]?.text ?? "";
 }
 
-async function connect(resolve: ContextResolver, writeProject = vi.fn()) {
+async function connect(resolve: ContextResolver, writeProject = vi.fn(), onAuthResult = vi.fn()) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const server = buildServer(resolve, writeProject);
+  const server = buildServer(resolve, writeProject, onAuthResult);
   const client = new Client({ name: "test", version: "0.0.0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
-  return { client, writeProject };
+  return { client, writeProject, onAuthResult };
 }
 
 const SIGNED_OUT: ContextResolver = () => ({ error: "Not signed in to SerenEdge." });
@@ -153,6 +153,47 @@ describe("mcp server context resolution", () => {
       expect(text(res), `${name} message`).toBe(NOT_SIGNED_IN);
       expect(text(res)).not.toContain("unauthorized");
     }
+  });
+
+  it("reports a 401 back to the CLI so `status --offline` can see it", async () => {
+    // The session hook is local-only, so a revoked token is invisible to it
+    // unless something that did talk to the server recorded the rejection.
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+      }),
+    );
+    const { client, onAuthResult } = await connect(withProject("acme"));
+    await client.callTool({ name: "list_my_tasks", arguments: {} });
+    expect(onAuthResult).toHaveBeenCalledWith(false);
+    expect(onAuthResult).not.toHaveBeenCalledWith(true);
+  });
+
+  it("reports a success back to the CLI so a stale rejection is cleared", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ tasks: [] }), { status: 200 }));
+    const { client, onAuthResult } = await connect(withProject("acme"));
+    await client.callTool({ name: "list_my_tasks", arguments: {} });
+    expect(onAuthResult).toHaveBeenCalledWith(true);
+  });
+
+  it("leaves the recorded state alone for a failure that is not a 401", async () => {
+    // A 500 says nothing about the token; clearing or setting the flag here
+    // would either hide a real rejection or invent one.
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: "boom" }), { status: 500 }));
+    const { client, onAuthResult } = await connect(withProject("acme"));
+    await client.callTool({ name: "list_my_tasks", arguments: {} });
+    expect(onAuthResult).not.toHaveBeenCalled();
+  });
+
+  it("reports the outcome of the projects fetch too", async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+      }),
+    );
+    const { client, onAuthResult } = await connect(withProject(null));
+    await client.callTool({ name: "list_my_projects", arguments: {} });
+    expect(onAuthResult).toHaveBeenCalledWith(false);
   });
 
   it("serenedge_status reports the resolved context without the token", async () => {

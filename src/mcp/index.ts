@@ -17,6 +17,24 @@ export type ContextResolver = () => ServerContext | { error: string };
 /** Persists a project mapping. Supplied by the CLI, which owns config.json. */
 export type ProjectWriter = (slug: string) => void;
 
+/**
+ * Records the outcome of an authenticated call: `false` for a 401, `true` for
+ * a success. Supplied by the CLI, which owns config.json - this package never
+ * reads or writes it. The CLI stamps a rejection so `status --offline` (and so
+ * the local-only session-start hook) can report a revoked token instead of
+ * claiming the machine is signed in.
+ */
+export type AuthResultWriter = (ok: boolean) => void;
+
+/** One entry of `GET /api/agent/projects` (A-080), declared once. */
+export type AgentProject = {
+  slug: string;
+  name: string;
+  status: string;
+  roles: string[];
+  open_tasks: number;
+};
+
 type ApiResult = { ok: true; data: unknown } | { ok: false; error: string };
 
 /**
@@ -45,6 +63,7 @@ async function callApi(
   ctx: ServerContext,
   path: string,
   init?: { method?: string; body?: unknown },
+  onAuthResult?: AuthResultWriter,
 ): Promise<ApiResult> {
   const base = ctx.url.replace(/\/$/, "");
   let res: Response;
@@ -70,19 +89,27 @@ async function callApi(
   if (res.status === 401) {
     // The token exists but the server rejected it (revoked, expired, wrong
     // host). `{"error":"unauthorized"}` tells the agent nothing it can act on.
+    onAuthResult?.(false);
     return { ok: false, error: NOT_SIGNED_IN };
   }
   if (!res.ok) {
+    // Anything else (500, 404, a rate limit) says nothing about the token, so
+    // it neither sets nor clears the recorded rejection.
     return {
       ok: false,
       error: (json as { error?: string }).error ?? `Request failed (${res.status})`,
     };
   }
+  onAuthResult?.(true);
   return { ok: true, data: json };
 }
 
 /** Builds the MCP server with the SerenEdge tools bound to a context resolver. */
-export function buildServer(resolve: ContextResolver, writeProject: ProjectWriter): McpServer {
+export function buildServer(
+  resolve: ContextResolver,
+  writeProject: ProjectWriter,
+  onAuthResult?: AuthResultWriter,
+): McpServer {
   const server = new McpServer({ name: "serenedge", version: "0.0.0" });
 
   /** Resolves context or returns the tool error to hand straight back. */
@@ -94,7 +121,20 @@ export function buildServer(resolve: ContextResolver, writeProject: ProjectWrite
   async function api(path: string, init?: { method?: string; body?: unknown }): Promise<ApiResult> {
     const c = ctx();
     if ("error" in c) return { ok: false, error: c.error };
-    return callApi(c, path, init);
+    return callApi(c, path, init, onAuthResult);
+  }
+
+  /**
+   * The projects list, fetched and shape-cast in one place: `list_my_projects`
+   * and `switch_project` both need it and must agree on the shape.
+   */
+  async function fetchProjects(
+    c: ServerContext,
+  ): Promise<{ ok: true; projects: AgentProject[] } | { ok: false; error: string }> {
+    const res = await callApi(c, "/api/agent/projects", undefined, onAuthResult);
+    if (!res.ok) return res;
+    const { projects = [] } = res.data as { projects?: AgentProject[] };
+    return { ok: true, projects };
   }
 
   /** Explicit argument wins, then the current project, else an error. */
@@ -469,23 +509,13 @@ export function buildServer(resolve: ContextResolver, writeProject: ProjectWrite
     async () => {
       const c = ctx();
       if ("error" in c) return errorResult(c.error);
-      const res = await callApi(c, "/api/agent/projects");
+      const res = await fetchProjects(c);
       if (!res.ok) return errorResult(res.error);
-      // The full shape `GET /api/agent/projects` returns: the spread below
-      // passes roles and open_tasks through, and the tool description
-      // promises them, so the type must name them too.
-      const { projects = [] } = res.data as {
-        projects?: {
-          slug: string;
-          name: string;
-          status: string;
-          roles: string[];
-          open_tasks: number;
-        }[];
-      };
+      // The spread passes roles and open_tasks through, as the tool
+      // description promises.
       return textResult({
         current: c.project,
-        projects: projects.map((p) => ({ ...p, current: p.slug === c.project })),
+        projects: res.projects.map((p) => ({ ...p, current: p.slug === c.project })),
       });
     },
   );
@@ -500,10 +530,9 @@ export function buildServer(resolve: ContextResolver, writeProject: ProjectWrite
     async ({ slug }) => {
       const c = ctx();
       if ("error" in c) return errorResult(c.error);
-      const res = await callApi(c, "/api/agent/projects");
+      const res = await fetchProjects(c);
       if (!res.ok) return errorResult(res.error);
-      const { projects = [] } = res.data as { projects?: { slug: string }[] };
-      const valid = projects.map((p) => p.slug);
+      const valid = res.projects.map((p) => p.slug);
       if (!valid.includes(slug)) {
         return errorResult(
           `You are not a member of "${slug}". Your projects: ${valid.join(", ") || "(none)"}.`,
@@ -536,7 +565,8 @@ export function buildServer(resolve: ContextResolver, writeProject: ProjectWrite
 export async function startStdioServer(
   resolve: ContextResolver,
   writeProject: ProjectWriter,
+  onAuthResult?: AuthResultWriter,
 ): Promise<void> {
-  const server = buildServer(resolve, writeProject);
+  const server = buildServer(resolve, writeProject, onAuthResult);
   await server.connect(new StdioServerTransport());
 }

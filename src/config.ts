@@ -17,6 +17,13 @@ export type CliConfig = {
   user?: { name: string | null; email: string } | null;
   /** Absolute normalised repo path -> project slug (A-079). */
   projects?: Record<string, string>;
+  /**
+   * ISO timestamp of the last authenticated call this machine made that came
+   * back 401, cleared by the next successful one. `status --offline` (and so
+   * the session-start hook, which is deliberately local-only) has no way to
+   * notice a revoked token otherwise, and would keep reporting "signed in".
+   */
+  tokenRejectedAt?: string | null;
 };
 
 function configPath(): string {
@@ -38,6 +45,9 @@ export function readConfig(): CliConfig | null {
         token: parsed.token,
         ...(parsed.user ? { user: parsed.user } : {}),
         ...(parsed.projects ? { projects: parsed.projects } : {}),
+        ...(typeof parsed.tokenRejectedAt === "string"
+          ? { tokenRejectedAt: parsed.tokenRejectedAt }
+          : {}),
       };
     }
     return null;
@@ -83,7 +93,9 @@ export function writeConfig(config: CliConfig): void {
  * The config a fresh login should store. Carries the existing per-repo
  * project map forward: both `setup.md` and the session hook tell a developer
  * to run `serenedge login` again after a token rejection, and writing only
- * url/token/user would silently unmap every repo on the machine.
+ * url/token/user would silently unmap every repo on the machine. It does not
+ * carry `tokenRejectedAt` forward: a completed login is exactly the event
+ * that clears it.
  */
 export function configForLogin(next: {
   url: string;
@@ -97,6 +109,31 @@ export function configForLogin(next: {
     ...(next.user ? { user: next.user } : {}),
     ...(existing?.projects ? { projects: existing.projects } : {}),
   };
+}
+
+/**
+ * Records what an authenticated response said about the stored token: a 401
+ * stamps `tokenRejectedAt`, any success clears it. Called by every
+ * authenticated CLI command and, through the CLI's `onAuthResult` callback,
+ * by the MCP server. Writes only when the flag actually changes, so the
+ * steady state costs no disk writes. Never throws: a status probe or an MCP
+ * tool must not fail because a config write did.
+ */
+export function recordAuthResult(ok: boolean): void {
+  try {
+    const config = readConfig();
+    if (!config) return;
+    if (ok) {
+      if (!config.tokenRejectedAt) return;
+      const { tokenRejectedAt: _cleared, ...rest } = config;
+      writeConfig(rest);
+      return;
+    }
+    if (config.tokenRejectedAt) return;
+    writeConfig({ ...config, tokenRejectedAt: new Date().toISOString() });
+  } catch {
+    // Best effort. The online `status` path still reports the rejection.
+  }
 }
 
 export function clearConfig(): boolean {
