@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildServer, type ContextResolver } from "./index.js";
+import { buildServer, type ContextResolver, NOT_SIGNED_IN } from "./index.js";
 
 function text(res: unknown): string {
   const content = (res as { content?: { text: string }[] }).content ?? [];
@@ -133,6 +133,26 @@ describe("mcp server context resolution", () => {
     expect(res.isError).toBe(true);
     expect(text(res)).toContain("acme");
     expect(writeProject).not.toHaveBeenCalled();
+  });
+
+  it("turns a rejected token into the same actionable message as no token", async () => {
+    // The API answers a stale or revoked token with a bare
+    // {"error":"unauthorized"}, which tells the agent nothing it can act on.
+    // A fresh Response per call: a body can only be read once.
+    fetchMock.mockImplementation(
+      async () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
+    );
+    const { client } = await connect(withProject("acme"));
+    for (const [name, args] of [
+      ["list_my_tasks", {}],
+      ["get_task", { key: "X-1" }],
+      ["list_my_projects", {}],
+    ] as [string, Record<string, unknown>][]) {
+      const res = await client.callTool({ name, arguments: args });
+      expect(res.isError, `${name} should error`).toBe(true);
+      expect(text(res), `${name} message`).toBe(NOT_SIGNED_IN);
+      expect(text(res)).not.toContain("unauthorized");
+    }
   });
 
   it("serenedge_status reports the resolved context without the token", async () => {

@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -38,15 +46,57 @@ export function readConfig(): CliConfig | null {
   }
 }
 
+/**
+ * Writes atomically: a sibling temp file in the same directory, then a rename
+ * over the target. `writeFileSync` truncates in place, so a crash or a full
+ * disk mid-write would leave a truncated config.json and destroy the stored
+ * device token, forcing a re-login. A rename inside one directory is atomic,
+ * so a reader sees either the whole old file or the whole new one.
+ *
+ * This is deliberately not cross-process locking: two concurrent writers are
+ * still last-write-wins on the contents, they just can never leave a corrupt
+ * or half-written file behind.
+ */
 export function writeConfig(config: CliConfig): void {
   const path = configPath();
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  const tmp = `${path}.${process.pid}.tmp`;
   try {
-    chmodSync(path, 0o600);
-  } catch {
-    // chmod is a no-op / may fail on Windows; the mode on write is best effort.
+    writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+    try {
+      chmodSync(tmp, 0o600);
+    } catch {
+      // chmod is a no-op / may fail on Windows; the mode on write is best effort.
+    }
+    renameSync(tmp, path);
+  } catch (error) {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // Nothing else to do: the target file is untouched either way.
+    }
+    throw error;
   }
+}
+
+/**
+ * The config a fresh login should store. Carries the existing per-repo
+ * project map forward: both `setup.md` and the session hook tell a developer
+ * to run `serenedge login` again after a token rejection, and writing only
+ * url/token/user would silently unmap every repo on the machine.
+ */
+export function configForLogin(next: {
+  url: string;
+  token: string;
+  user?: { name: string | null; email: string } | null;
+}): CliConfig {
+  const existing = readConfig();
+  return {
+    url: next.url,
+    token: next.token,
+    ...(next.user ? { user: next.user } : {}),
+    ...(existing?.projects ? { projects: existing.projects } : {}),
+  };
 }
 
 export function clearConfig(): boolean {

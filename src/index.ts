@@ -9,6 +9,7 @@ import { Command } from "commander";
 import {
   clearConfig,
   configDir,
+  configForLogin,
   configLocation,
   currentProject,
   readConfig,
@@ -80,7 +81,9 @@ async function login(opts: { url?: string }): Promise<void> {
       } catch {
         // Not fatal: status without --offline re-checks against the server.
       }
-      writeConfig({ url, token: body.access_token, ...(user ? { user } : {}) });
+      // configForLogin carries the existing per-repo project map forward, so
+      // a re-login does not unmap every repo on the machine.
+      writeConfig(configForLogin({ url, token: body.access_token, user }));
       spin.stop("Approved");
       p.outro(`Signed in. Token stored at ${configLocation()}`);
       return;
@@ -224,17 +227,15 @@ async function updateCmd(id: string, opts: { set?: string; url?: string }): Prom
 }
 
 async function mcp(): Promise<void> {
-  const { startStdioServer } = await import("./mcp/index.js");
+  // NOT_SIGNED_IN is shared with the MCP server so a missing token and a
+  // rejected one read identically to the agent.
+  const { NOT_SIGNED_IN, startStdioServer } = await import("./mcp/index.js");
   const cwd = process.cwd();
   await startStdioServer(
     () => {
       const config = readConfig();
       if (!config) {
-        return {
-          error:
-            "Not signed in to SerenEdge. Run `/serenedge setup` in Claude Code, or " +
-            "`serenedge login` in a terminal.",
-        };
+        return { error: NOT_SIGNED_IN };
       }
       return {
         url: config.url,
@@ -256,7 +257,19 @@ async function statusCmd(opts: { json?: boolean; offline?: boolean }): Promise<v
     return;
   }
   if (!payload.signedIn) {
-    console.log(`Not signed in (${payload.state}). Run \`serenedge login\`.`);
+    // `unreachable` is not a sign-in problem: the stored token is untouched
+    // and a re-login would only fail against the same unreachable host.
+    if (payload.state === "unreachable") {
+      console.log(`${payload.url} is unreachable from this machine.`);
+      console.log("The stored token is unchanged. Try again once the host is back.");
+      return;
+    }
+    if (payload.state === "token_rejected") {
+      console.log(`The stored token was rejected by ${payload.url}.`);
+      console.log("Run `serenedge login` again.");
+      return;
+    }
+    console.log("Not signed in. Run `serenedge login`.");
     return;
   }
   const who = payload.user?.name ?? payload.user?.email ?? "unknown user";

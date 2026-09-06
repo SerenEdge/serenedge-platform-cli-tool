@@ -1,9 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   clearCurrentProject,
+  configForLogin,
+  configLocation,
   currentProject,
   normalizeRepoKey,
   readConfig,
@@ -94,10 +96,47 @@ describe("projects map", () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
+  it("keeps every repo mapping when a re-login rewrites the config", () => {
+    writeConfig({ url: "http://x", token: "old" });
+    const repo = mkdtempSync(join(tmpdir(), "serenedge-relogin-"));
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    setCurrentProject(repo, "acme");
+
+    // What `serenedge login` writes on a second run. Dropping `projects` here
+    // would silently unmap every repo on the machine.
+    writeConfig(
+      configForLogin({ url: "http://x", token: "new", user: { name: "A", email: "a@b.c" } }),
+    );
+
+    const config = readConfig();
+    expect(config?.token).toBe("new");
+    expect(config?.projects).toEqual({ [normalizeRepoKey(repo)]: "acme" });
+    expect(currentProject(repo)).toBe("acme");
+    rmSync(repo, { recursive: true, force: true });
+  });
+
   it("ignores a corrupt config file instead of throwing", () => {
     mkdirSync(join(home, "serenedge"), { recursive: true });
     writeFileSync(join(home, "serenedge", "config.json"), "{ not json");
     expect(readConfig()).toBeNull();
     expect(currentProject(process.cwd())).toBeNull();
+  });
+});
+
+describe("atomic writes", () => {
+  it("leaves a valid parseable config and no temp file behind", () => {
+    writeConfig({ url: "http://x", token: "t", projects: { "d:/repo": "acme" } });
+    writeConfig({ url: "http://y", token: "t2", projects: { "d:/repo": "other" } });
+
+    const raw = readFileSync(configLocation(), "utf8");
+    expect(() => JSON.parse(raw)).not.toThrow();
+    expect(readConfig()).toEqual({
+      url: "http://y",
+      token: "t2",
+      projects: { "d:/repo": "other" },
+    });
+    // The write goes via a sibling temp file that is renamed over the target,
+    // so nothing else may be left in the config directory.
+    expect(readdirSync(join(home, "serenedge"))).toEqual(["config.json"]);
   });
 });

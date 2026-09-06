@@ -19,6 +19,16 @@ export type ProjectWriter = (slug: string) => void;
 
 type ApiResult = { ok: true; data: unknown } | { ok: false; error: string };
 
+/**
+ * The one message for "this machine has no usable token". The CLI hands it
+ * back when config.json is missing; `callApi` reuses it for a 401, so a
+ * revoked or expired token reads the same way as a missing one instead of
+ * surfacing the API's bare `unauthorized`.
+ */
+export const NOT_SIGNED_IN =
+  "Not signed in to SerenEdge. Run `/serenedge setup` in Claude Code, or " +
+  "`serenedge login` in a terminal.";
+
 const NOT_MAPPED =
   "This repo is not mapped to a SerenEdge project. Call `list_my_projects` and then " +
   "`switch_project`, or run `serenedge project use <slug>` in a terminal.";
@@ -56,6 +66,11 @@ async function callApi(
     json = text ? JSON.parse(text) : {};
   } catch {
     json = { error: text };
+  }
+  if (res.status === 401) {
+    // The token exists but the server rejected it (revoked, expired, wrong
+    // host). `{"error":"unauthorized"}` tells the agent nothing it can act on.
+    return { ok: false, error: NOT_SIGNED_IN };
   }
   if (!res.ok) {
     return {
@@ -431,7 +446,7 @@ export function buildServer(resolve: ContextResolver, writeProject: ProjectWrite
     "get_revision",
     {
       description:
-        "Read a client revision request by key (e.g. REV-3) for a project slug, so you can plan the tasks it needs. Requires revision.plan. Defaults to the current project.",
+        "Read a client revision request by key (e.g. REV-3), so you can plan the tasks it needs. Requires revision.plan. Reads it from the current project unless you pass a project slug.",
       inputSchema: { project: z.string().optional(), key: z.string() },
     },
     async ({ project, key }) => {
@@ -456,8 +471,17 @@ export function buildServer(resolve: ContextResolver, writeProject: ProjectWrite
       if ("error" in c) return errorResult(c.error);
       const res = await callApi(c, "/api/agent/projects");
       if (!res.ok) return errorResult(res.error);
+      // The full shape `GET /api/agent/projects` returns: the spread below
+      // passes roles and open_tasks through, and the tool description
+      // promises them, so the type must name them too.
       const { projects = [] } = res.data as {
-        projects?: { slug: string; name: string; status: string }[];
+        projects?: {
+          slug: string;
+          name: string;
+          status: string;
+          roles: string[];
+          open_tasks: number;
+        }[];
       };
       return textResult({
         current: c.project,
