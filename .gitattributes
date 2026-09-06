@@ -1,0 +1,12 @@
+# Normalise line endings to LF in the repo. plugins/claude-code/hooks/session-start.sh
+# is a bash script that Claude Code runs on Linux and macOS as well as Windows; a CRLF
+# checkout breaks it. The monorepo this package is split from carries the same rule.
+* text=auto eol=lf
+
+# Binary assets: never touch
+*.png binary
+*.ico binary
+*.jpg binary
+*.webp binary
+*.woff binary
+*.woff2 binary
