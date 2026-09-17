@@ -29,8 +29,24 @@ Wrap up the task you have been working on:
    - A `deploy` task needs an `environment` proposal.
    - If the work genuinely introduces no such change, pass `kbWaiverReason` in
      the next step instead.
-6. Commit your work and push the branch.
-7. Call `submit_for_review` with the task key and the summary (and
+
+Then record how the new knowledge connects. For each proposal you filed, call
+`link_kb` with the entries it relates to, a `relation`, and a `note` saying
+why they connect. Link to the entry you just proposed by its key even though
+it does not exist yet: the link resolves by itself when the proposal is
+accepted.
+
+Prefer a specific relation over `relates_to` when one fits: `supersedes` when
+this replaces an earlier decision, `implements` when an interface realises a
+decision, `depends_on` when one cannot change without the other. If you
+cannot write a note explaining the connection, do not create the link.
+
+6. Dependencies. If the work made this task depend on another task's output
+   (an interface, a migration, an env var it introduced), or another task now
+   depends on yours, say so in the summary under a `Dependencies:` line with
+   the task keys. The reviewer records them in the plan.
+7. Commit your work and push the branch.
+8. Call `submit_for_review` with the task key and the summary (and
    `kbWaiverReason` if step 5 found nothing). If the call returns a
    "not ready for review" or "unregistered environment variables" error, fix
    each listed item and try again.

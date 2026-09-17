@@ -9,7 +9,8 @@ MCP server is configured (`serenedge mcp`). Use it like this:
   to read the description, acceptance criteria, definition of done and agent
   prompt. Follow the agent prompt. Work only on that branch.
 - Finishing: run the tests, satisfy every definition-of-done item, write a
-  3-6 sentence summary, commit and push, then call `submit_for_review` with
-  the key and summary.
+  3-6 sentence summary (add a `Dependencies:` line naming any task keys this
+  work now depends on, or that now depend on it), commit and push, then call
+  `submit_for_review` with the key and summary.
 - Never touch a task that is not yours. `get_task` returns 403 for tasks
   outside your visibility.

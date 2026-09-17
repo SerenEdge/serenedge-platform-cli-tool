@@ -339,6 +339,105 @@ export function buildServer(
   );
 
   server.registerTool(
+    "read_kb",
+    {
+      description:
+        "Read one knowledge base entry in full, plus its neighbourhood in the entry graph. Neighbours come back as key, title, relation and note only, never bodies: follow an edge with another read_kb call rather than guessing a new search. Defaults to the current project.",
+      inputSchema: {
+        key: z.string(),
+        depth: z.number().int().min(1).max(3).optional(),
+        project: z.string().optional(),
+      },
+    },
+    async ({ key, depth, project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const params = new URLSearchParams({ project: picked.slug, key });
+      if (depth != null) params.set("depth", String(depth));
+      const res = await api(`/api/agent/kb/entry?${params.toString()}`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "link_kb",
+    {
+      description:
+        "Connect two knowledge base entries. Unlike propose_kb this writes straight through, because an edge is cheap and reversible: use it freely as you learn how things relate. `note` says why they connect and is required. `targetKey` may name an entry you have only proposed and not yet had accepted; the link resolves when it lands. Requires kb.propose.",
+      inputSchema: {
+        sourceKey: z.string(),
+        targetKey: z.string(),
+        relation: z
+          .enum([
+            "relates_to",
+            "depends_on",
+            "supersedes",
+            "implements",
+            "contradicts",
+            "example_of",
+          ])
+          .optional(),
+        note: z.string(),
+        taskKey: z.string().optional(),
+        project: z.string().optional(),
+      },
+    },
+    async ({ sourceKey, targetKey, relation, note, taskKey, project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api("/api/agent/kb/links", {
+        method: "POST",
+        body: {
+          sourceKey,
+          targetKey,
+          relation: relation ?? "relates_to",
+          note,
+          ...(taskKey ? { taskKey } : {}),
+          project: picked.slug,
+        },
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "unlink_kb",
+    {
+      description:
+        "Remove a link you created with link_kb. Only agent-written links can be removed: links a person drew, and links that come from an entry's body text, are left alone. Requires kb.propose.",
+      inputSchema: {
+        sourceKey: z.string(),
+        targetKey: z.string(),
+        relation: z
+          .enum([
+            "relates_to",
+            "depends_on",
+            "supersedes",
+            "implements",
+            "contradicts",
+            "example_of",
+          ])
+          .optional(),
+        project: z.string().optional(),
+      },
+    },
+    async ({ sourceKey, targetKey, relation, project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api("/api/agent/kb/links", {
+        method: "DELETE",
+        body: {
+          sourceKey,
+          targetKey,
+          relation: relation ?? "relates_to",
+          project: picked.slug,
+        },
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
     "draft_kb_context",
     {
       description:

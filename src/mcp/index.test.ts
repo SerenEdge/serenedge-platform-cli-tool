@@ -46,9 +46,11 @@ describe("mcp server", () => {
       "get_task",
       "get_task_thread",
       "ignore_env_name",
+      "link_kb",
       "list_my_projects",
       "list_my_tasks",
       "propose_kb",
+      "read_kb",
       "register_env_var",
       "serenedge_status",
       "start_task",
@@ -56,6 +58,7 @@ describe("mcp server", () => {
       "submit_plan",
       "submit_risk_narrative",
       "switch_project",
+      "unlink_kb",
     ]);
   });
 
