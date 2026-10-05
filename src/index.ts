@@ -403,7 +403,13 @@ function registerMcpServer(): void {
       ? ["mcp", "add", "-s", "user", "serenedge", "--", "cmd", "/c", "serenedge", "mcp"]
       : ["mcp", "add", "-s", "user", "serenedge", "--", "serenedge", "mcp"];
 
-  const added = spawnSync("claude", args, { stdio: "inherit" });
+  const added = spawnSync("claude", args, { encoding: "utf8" });
+  const output = `${added.stdout ?? ""}${added.stderr ?? ""}`;
+  // Already registered is the normal case on every reinstall, not a failure.
+  if (/already exists/i.test(output)) {
+    console.log("The serenedge MCP server is already registered under user scope.");
+    return;
+  }
   if (added.status === 0) {
     console.log("Registered the serenedge MCP server under user scope.");
     console.log("Restart Claude Code (or reconnect it from /mcp) before the tools appear.");
@@ -461,11 +467,17 @@ function installClaudeCode(): void {
     stdio: "inherit",
   });
   if (added.status === 0) {
+    // `plugin install` on an already-installed plugin is a no-op, and Claude
+    // Code keeps its own cached copy of the pack from the first install: so a
+    // plain reinstall left new commands (and renamed ones) invisible. Remove
+    // the old registration first so the install copies the files we just wrote.
+    spawnSync("claude", ["plugin", "uninstall", "serenedge@serenedge"], { stdio: "ignore" });
     const installed = spawnSync("claude", ["plugin", "install", "serenedge@serenedge", "-y"], {
       stdio: "inherit",
     });
     if (installed.status === 0) {
       console.log("Registered the plugin with Claude Code.");
+      console.log("Run /reload-plugins in Claude Code (or start a new session) to load the new commands.");
       registerMcpServer();
       return;
     }
