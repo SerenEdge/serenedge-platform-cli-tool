@@ -502,6 +502,37 @@ function install(agent: string): void {
   }
 }
 
+/** Pull, reinstall and rebuild the checkout this CLI was built from. Only works for a git clone; other layouts get a pointer to the docs. */
+function selfUpdate() {
+  let root = PACKAGE_ROOT;
+  while (!existsSync(join(root, ".git")) && dirname(root) !== root) root = dirname(root);
+  if (!existsSync(join(root, ".git"))) {
+    console.error(
+      "This copy of serenedge is not a git clone, so it cannot update itself. Re-clone https://github.com/SerenEdge/serenedge-platform-cli-tool and rebuild.",
+    );
+    process.exit(1);
+  }
+  const shell = process.platform === "win32";
+  const steps: [string, string[]][] = [
+    ["git", ["pull", "--ff-only"]],
+    ["pnpm", ["install"]],
+    ["pnpm", ["build"]],
+  ];
+  for (const [cmd, args] of steps) {
+    console.log(`> ${cmd} ${args.join(" ")}`);
+    const res = spawnSync(cmd, args, { cwd: root, stdio: "inherit", shell });
+    if (res.status !== 0) {
+      console.error(
+        `"${cmd} ${args.join(" ")}" failed. Fix that and run serenedge self-update again.`,
+      );
+      process.exit(res.status ?? 1);
+    }
+  }
+  console.log(
+    "Updated. Run `serenedge install claude-code` (or codex) to refresh the command pack.",
+  );
+}
+
 const program = new Command();
 program.name("serenedge").description("SerenEdge delivery platform CLI").version(cliVersion());
 
@@ -554,6 +585,10 @@ program
   .option("--set <file>", "Post the file's contents as the new body (- for stdin)")
   .option("--url <url>", "Base URL of the SerenEdge app")
   .action(updateCmd);
+program
+  .command("self-update")
+  .description("Pull the latest CLI source, reinstall and rebuild")
+  .action(selfUpdate);
 program
   .command("install")
   .argument("<agent>", "claude-code | codex")
