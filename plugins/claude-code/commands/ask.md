@@ -2,17 +2,19 @@
 description: Ask the project knowledge base a question
 ---
 
-Call the `ask_kb` MCP tool with your question (for example "what is the
-branch naming convention?" or "how are error codes formatted?"). It defaults
-to the project this repo is mapped to; pass `project` only to search a
-different one. It runs a hybrid semantic and keyword search and returns the
-most relevant entries with their full bodies.
+Answer the user's question from the project's knowledge base.
 
-`ask_kb` does not write an answer for you: read the returned entries and
-answer from them, staying consistent with what the project has already
-decided.
+Pick the right tool for the shape of the question:
 
-Each returned entry carries a `links` list: the other entries it connects to,
-with the relation and the note explaining it. When a link looks like the
-answer, call `read_kb` with that key rather than searching again. Searching
-twice for the same thing usually means an edge would have taken you there.
+- **Exact** ("every decision from PROJ-12", "which entries have no links",
+  "every endpoint this project documents"): call `query_kb`. It returns one
+  compact row per match with no bodies, so scanning is cheap. Pass
+  `endpoints: true` for the endpoint list.
+- **Fuzzy** ("how does auth work?"): call `ask_kb`. It returns the best
+  matching entries as key, title, type and a short snippet.
+
+Neither returns full bodies. Read the rows, decide which single entry actually
+answers the question, then call `read_kb` with its key for the body and its
+neighbourhood. Only read a second entry if the first genuinely did not answer.
+
+Write the answer yourself from what you read, and cite the entry keys you used.

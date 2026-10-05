@@ -27,24 +27,63 @@ Wrap up the task you have been working on:
    with the task key, the name, a description, whether it is a secret, its
    source, and the environments it is required in. If a flagged name is a
    false positive or is owned elsewhere, call `ignore_env_name` with a reason.
-5. Knowledge base. Call `draft_kb_context` with the task key: it returns your
-   diff, the project's existing `interface`/`decision` entries, and a drafter
-   prompt. Draft proposals from the diff (set `entryKey` on one that changes
-   an existing entry instead of duplicating it); if the optional AI path is
-   on for this project you can call `draft_kb_proposals` instead and review
-   its output. Present your drafts, then call `propose_kb` for each one the
-   developer confirms.
+5. Draft the knowledge the work produced and write it.
+
+   For each new interface, decision, convention or UI-system change, call
+   `propose_kb`. The write is **live at once**: it is attributed to this task
+   and to you, other developers' agents can find it immediately, and the
+   reviewer sees it next to your PR and can revert it. Two kinds of change are
+   the exception and wait for a `kb.approve` holder before they take effect: a
+   change to a `convention`, and any deprecation (`deprecate: true` with
+   `entryKey`). The response says `status: "live"` or `status: "pending"`.
+
+   To change an existing entry set `entryKey` **and** `baseVersion`, the
+   `version` you saw in `read_kb` or in `draft_kb_context`. If someone changed
+   the entry since, the call fails with a conflict naming the current version:
+   call `read_kb` again, merge your change into the current body, and resubmit
+   with the new `baseVersion`. Never resubmit your old body over it.
+
+   Two rules the `submit_for_review` gate enforces, so getting them right here
+   saves a round trip:
+
+   - **Every entry you create must be connected to something.** The reliable
+     way is a `[[wikilink]]` in its body pointing at an existing entry, or at
+     another entry you are writing in this same task. A `link_kb` edge with the
+     new entry as source or target also counts. The entry exists as soon as
+     you write it, so its key is final and there is no `-2` suffix to guess.
+   - **An `interface` proposal must carry an `## Endpoints` section.** One list
+     item per endpoint, in this shape:
+
+     ```
+     ## Endpoints
+
+     - `POST /api/auth/login` : email and password, returns a JWT
+     - `GET /api/auth/me` : the current user
+     ```
+
+     An interface that is not an HTTP surface still writes the heading, with a
+     line saying it has no endpoints.
+
+   Call `draft_kb_context` with the task key: it returns your diff, the
+   project's existing entries of every active type with their current
+   `version`, and a drafter prompt. Draft entries from the diff (set `entryKey`
+   and `baseVersion` on one that changes an existing entry instead of
+   duplicating it); if the optional AI path is on for this project you can call
+   `draft_kb_proposals` instead and review its output. Present your drafts,
+   then call `propose_kb` for each one the developer confirms. Because a
+   confirmed write is live straight away, do not call it for a draft the
+   developer has not confirmed.
    - A `dev` task needs at least one `interface` or `decision` proposal.
    - A `ui` task needs a `ui_system` proposal.
    - A `deploy` task needs an `environment` proposal.
    - If the work genuinely introduces no such change, pass `kbWaiverReason` in
      the next step instead.
 
-Then record how the new knowledge connects. For each proposal you filed, call
+Then record how the new knowledge connects. For each entry you wrote, call
 `link_kb` with the entries it relates to, a `relation`, and a `note` saying
-why they connect. Link to the entry you just proposed by its key even though
-it does not exist yet: the link resolves by itself when the proposal is
-accepted.
+why they connect. For a convention or deprecation that is still pending, you
+can name its predicted key even though it does not exist yet: the link
+resolves by itself when it is accepted.
 
 Prefer a specific relation over `relates_to` when one fits: `supersedes` when
 this replaces an earlier decision, `implements` when an interface realises a

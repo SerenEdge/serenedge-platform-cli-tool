@@ -26,7 +26,11 @@ You are working through the SerenEdge delivery platform. Do this in order:
    do not perform them yourself.
 6. Follow the task's `agent_prompt`. Work only on the branch from step 4. Do
    not touch other tasks.
-7. If a later API response reports a `context_version` higher than the one
+7. KB entries marked `unreviewed from PROJ-12` (in the bundle's KB index, or
+   as `reviewed: false` and `fromTask` in `ask_kb`, `query_kb` and `read_kb`)
+   are live writes from another task that is not done yet. Use them, but if
+   one disagrees with the code, the code wins.
+8. If a later API response reports a `context_version` higher than the one
    you started with, the conventions or knowledge base changed: call
    `get_task` again and re-read the bundle before continuing.
 

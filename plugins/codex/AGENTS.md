@@ -12,5 +12,13 @@ MCP server is configured (`serenedge mcp`). Use it like this:
   3-6 sentence summary (add a `Dependencies:` line naming any task keys this
   work now depends on, or that now depend on it), commit and push, then call
   `submit_for_review` with the key and summary.
+- Knowledge: `propose_kb` writes a KB entry live, attributed to your task
+  (conventions and deprecations wait for approval instead). To change an
+  existing entry pass its `entryKey` and the `baseVersion` you read with
+  `read_kb`; on a version conflict, read it again, merge, and resubmit. A new
+  entry must be connected (a `[[wikilink]]` in its body or `link_kb`) before
+  `submit_for_review` will pass. An entry marked unreviewed (`reviewed: false`,
+  `fromTask`) was written by a task that is not done yet: use it, but the code
+  wins if they disagree.
 - Never touch a task that is not yours. `get_task` returns 403 for tasks
   outside your visibility.

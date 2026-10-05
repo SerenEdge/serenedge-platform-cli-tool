@@ -50,6 +50,7 @@ describe("mcp server", () => {
       "list_my_projects",
       "list_my_tasks",
       "propose_kb",
+      "query_kb",
       "read_kb",
       "register_env_var",
       "serenedge_status",

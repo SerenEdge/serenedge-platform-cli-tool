@@ -302,7 +302,7 @@ export function buildServer(
     "ask_kb",
     {
       description:
-        "Search a project's knowledge base for a question and get back the most relevant entries (key, title, body). No answer is synthesized: read the entries and write the answer yourself. Defaults to the current project.",
+        "Search a project's knowledge base for a fuzzy question and get back the most relevant entries as key, title, type and a short snippet. Bodies are not included: call read_kb with a key for the one entry you want. For an exact question, use query_kb instead. No answer is synthesized: read the entries and write the answer yourself. Defaults to the current project.",
       inputSchema: { project: z.string().optional(), question: z.string() },
     },
     async ({ project, question }) => {
@@ -316,10 +316,59 @@ export function buildServer(
   );
 
   server.registerTool(
+    "query_kb",
+    {
+      description:
+        'Exact structured lookup over a project\'s knowledge base: filter by entry type, the task that created the entry, status, relation or update time, and get back a compact row per match with no bodies. Use this when you know what you are looking for ("every decision from PROJ-12", "every endpoint this project documents"); use ask_kb when the question is fuzzy. Call read_kb for the one entry you want to read. Defaults to the current project.',
+      inputSchema: {
+        project: z.string().optional(),
+        type: z
+          .enum([
+            "decision",
+            "interface",
+            "convention",
+            "ui_system",
+            "environment",
+            "error",
+            "glossary",
+          ])
+          .optional(),
+        task: z.string().optional(),
+        relation: z
+          .enum([
+            "relates_to",
+            "depends_on",
+            "supersedes",
+            "implements",
+            "contradicts",
+            "example_of",
+          ])
+          .optional(),
+        orphans: z.boolean().optional(),
+        endpoints: z.boolean().optional(),
+        limit: z.number().optional(),
+      },
+    },
+    async ({ project, type, task, relation, orphans, endpoints, limit }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const p = new URLSearchParams({ project: picked.slug });
+      if (type) p.set("type", type);
+      if (task) p.set("task", task);
+      if (relation) p.set("relation", relation);
+      if (orphans) p.set("orphans", "true");
+      if (endpoints) p.set("endpoints", "true");
+      if (limit) p.set("limit", String(limit));
+      const res = await api(`/api/agent/kb/query?${p.toString()}`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
     "propose_kb",
     {
       description:
-        "File a knowledge-base change proposal linked to the current task. Omit entryKey for a new entry; set it to change an existing one. A kb.approve holder reviews it.",
+        "Write a knowledge-base change linked to the current task. Most changes go live immediately, attributed to this task, and other developers' agents can find them at once; the reviewer sees them with the task and can revert them. Omit entryKey for a new entry; set it to change an existing one, and then baseVersion (the version you got from read_kb) is required: if the entry changed since, the write is refused with the current body so you can merge and resubmit. Changes to a convention, and any deprecation (deprecate: true with entryKey), are not live: they wait for a kb.approve holder. An interface entry must carry an ## Endpoints section or it is rejected. A new entry must be connected to something before submit_for_review: a [[wikilink]] in its body or a link_kb edge.",
       inputSchema: {
         taskKey: z.string(),
         type: z.enum([
@@ -334,10 +383,12 @@ export function buildServer(
         title: z.string(),
         body: z.string(),
         entryKey: z.string().optional(),
+        baseVersion: z.number().int().positive().optional(),
+        deprecate: z.boolean().optional(),
         diff: z.string().optional(),
       },
     },
-    async ({ taskKey, type, title, body, entryKey, diff }) => {
+    async ({ taskKey, type, title, body, entryKey, baseVersion, deprecate, diff }) => {
       const res = await api("/api/agent/kb/proposals", {
         method: "POST",
         body: {
@@ -346,6 +397,8 @@ export function buildServer(
           title,
           body,
           ...(entryKey ? { entryKey } : {}),
+          ...(baseVersion !== undefined ? { baseVersion } : {}),
+          ...(deprecate ? { deprecate } : {}),
           ...(diff ? { diff } : {}),
         },
       });
@@ -456,7 +509,7 @@ export function buildServer(
     "draft_kb_context",
     {
       description:
-        "Get the raw materials to draft KB proposals from your task's diff: the diff itself, the project's existing interface/decision entries, and the drafter prompt. Draft proposals yourself and submit confirmed ones with propose_kb. Requires kb.propose.",
+        "Get the raw materials to draft KB proposals from your task's diff: the diff itself, the project's existing entries of every active type with their current version (send it as baseVersion when you edit one), and the drafter prompt. Draft proposals yourself and submit confirmed ones with propose_kb. Requires kb.propose.",
       inputSchema: { key: z.string() },
     },
     async ({ key }) => {

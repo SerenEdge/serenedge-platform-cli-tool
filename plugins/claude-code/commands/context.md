@@ -12,5 +12,14 @@ connect to, as `from`, `to` and `relation`. Read the map before opening
 anything else. It tells you which parts of the knowledge base this task
 actually touches.
 
+Linked KB entries arrive as an index of titles and keys, not full bodies. Call
+`read_kb` with a key when you need one. Conventions arrive in full, because
+they are rules to follow rather than reference material.
+
+An entry marked `unreviewed from PROJ-12` was written by that task and its
+latest version has not been reviewed yet (its task is not done). It is current
+and worth using, but if it disagrees with the code, the code wins. Say so in
+your summary rather than building on it silently.
+
 If you need something the map does not cover, call `ask_kb` with a question,
 then `read_kb` to follow the edges it returns.
