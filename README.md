@@ -107,7 +107,8 @@ For Claude Code, `install claude-code` copies the plugin locally, registers it a
 | Command             | What it does                                                        |
 | -------------------- | --------------------------------------------------------------------- |
 | `/serenedge next`   | Pick the next task, claim and start it, load its full context.      |
-| `/serenedge done`   | Run tests, satisfy the definition of done, submit for review.       |
+| `/serenedge done`   | Only when finished: run tests, push, open the PR to `dev`, submit.   |
+| `/serenedge revision` | Pick up a task sent back for changes; starts the rework clock.     |
 | `/serenedge context` | Load the task's linked knowledge-base entries.                     |
 | `/serenedge ask`    | Ask the project knowledge base a question.                          |
 | `/serenedge plan`   | Draft or update the task plan (Project Head).                       |

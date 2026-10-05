@@ -2,6 +2,16 @@
 description: Finish the current SerenEdge task and submit it for review
 ---
 
+Run this only when the task is finished properly: the work is complete, the
+tests pass and nothing in the definition of done is left. It is not a
+checkpoint and not a way to save progress. If the work is not finished, say
+what is missing and stop instead of submitting. Submitting stops your clock
+and sends the task to a reviewer, so a half-done task wastes their time.
+
+When this is a rework after a reviewer sent the task back (you started it with
+`/serenedge revision`), the same steps apply: push to the existing branch, and
+the existing PR updates itself instead of a second one being opened.
+
 Wrap up the task you have been working on:
 
 1. Run the project's test suite. If tests fail, fix them before continuing;
@@ -45,8 +55,21 @@ cannot write a note explaining the connection, do not create the link.
    (an interface, a migration, an env var it introduced), or another task now
    depends on yours, say so in the summary under a `Dependencies:` line with
    the task keys. The reviewer records them in the plan.
-7. Commit your work and push the branch.
-8. Call `submit_for_review` with the task key and the summary (and
+7. Commit your work (message `<KEY>: short imperative summary`, no AI or agent
+   attribution) and push the branch.
+8. Open the pull request yourself, do not ask the developer to. The target is
+   the task's `target_branch` (normally `dev`), never `main`. First check
+   whether this branch already has an open PR (`gh pr list --head <branch>
+   --state open`). If it does, the push in step 7 already updated it: report
+   its URL and do not open another. If it does not, run `gh pr create --base
+   <target_branch> --head <branch>` with the title `<KEY>: <task title>` and a
+   body made of your summary from step 3. No attribution lines in the title or
+   body. If `gh` is unavailable or not signed in, give the developer the
+   branch name and tell them to open the PR against `<target_branch>`.
+9. Call `submit_for_review` with the task key and the summary (and
    `kbWaiverReason` if step 5 found nothing). If the call returns a
    "not ready for review" or "unregistered environment variables" error, fix
-   each listed item and try again.
+   each listed item and try again. If it says the task was sent back and needs
+   `/serenedge revision` first, tell the user to run that.
+10. Tell the user the task is in review, give the PR URL, and note that the
+    clock stopped when you submitted.

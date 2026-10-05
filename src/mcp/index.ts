@@ -206,6 +206,21 @@ export function buildServer(
   );
 
   server.registerTool(
+    "start_revision",
+    {
+      description:
+        "Pick up a task the reviewer sent back for changes (list_my_tasks shows revision_pending: true). Starts the rework countdown, whose hours the reviewer set, at the moment you call it, and returns the reviewer's notes, the rework deadline, the git commands and the task bundle. Calling it again does not restart the clock.",
+      inputSchema: { key: z.string() },
+    },
+    async ({ key }) => {
+      const res = await api(`/api/agent/tasks/${encodeURIComponent(key)}/revision`, {
+        method: "POST",
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
     "submit_for_review",
     {
       description:
