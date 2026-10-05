@@ -9,7 +9,7 @@ what is missing and stop instead of submitting. Submitting stops your clock
 and sends the task to a reviewer, so a half-done task wastes their time.
 
 When this is a rework after a reviewer sent the task back (you started it with
-`/serenedge revision`), the same steps apply: push to the existing branch, and
+`/serenedge rework`), the same steps apply: push to the existing branch, and
 the existing PR updates itself instead of a second one being opened.
 
 Wrap up the task you have been working on:
@@ -109,6 +109,6 @@ cannot write a note explaining the connection, do not create the link.
    `kbWaiverReason` if step 5 found nothing). If the call returns a
    "not ready for review" or "unregistered environment variables" error, fix
    each listed item and try again. If it says the task was sent back and needs
-   `/serenedge revision` first, tell the user to run that.
+   `/serenedge rework` first, tell the user to run that.
 10. Tell the user the task is in review, give the PR URL, and note that the
     clock stopped when you submitted.

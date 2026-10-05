@@ -7,13 +7,13 @@ Use this when a reviewer sent one of your tasks back for changes. It is not
 `/serenedge revise`, which is for client revision requests. Running this
 command **starts the rework countdown**: the reviewer already set how many
 hours the rework may take, and the clock runs from the moment you call
-`start_revision`. Do not run it until you are ready to work.
+`start_rework`. Do not run it until you are ready to work.
 
 1. Pick the task. If `$ARGUMENTS` has a task key, use it. Otherwise call
-   `list_my_tasks` and take the task with `revision_pending: true`. If there
-   is none, tell the user there is no revision waiting and stop. If there are
+   `list_my_tasks` and take the task with `rework_pending: true`. If there
+   is none, tell the user there is no rework waiting and stop. If there are
    several, list them and ask which one to start.
-2. Call `start_revision` with the key. If it fails, tell the user exactly
+2. Call `start_rework` with the key. If it fails, tell the user exactly
    what the error said and stop. The response gives `rework_hours`,
    `rework_due_at`, `reviewer_notes`, the branch and git commands, and the
    task `bundle`. Tell the user how long they have and when it is due.

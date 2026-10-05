@@ -54,7 +54,7 @@ describe("mcp server", () => {
       "read_kb",
       "register_env_var",
       "serenedge_status",
-      "start_revision",
+      "start_rework",
       "start_task",
       "submit_for_review",
       "submit_plan",

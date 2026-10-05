@@ -7,8 +7,8 @@ You are working through the SerenEdge delivery platform. Do this in order:
 1. Call the `list_my_tasks` MCP tool with no arguments. It returns only the
    tasks in the project this repo is mapped to. If it reports that the repo is
    not mapped to a project, run `/serenedge project` first and stop.
-2. If any task has `revision_pending: true`, a reviewer sent it back for
-   changes. Tell the user and point them to `/serenedge revision`: it starts
+2. If any task has `rework_pending: true`, a reviewer sent it back for
+   changes. Tell the user and point them to `/serenedge rework`: it starts
    the rework clock, so do not start it for them here. Stop unless they say to
    pick up something else.
    If one of your tasks is already `in_progress`, that is the task. Otherwise
