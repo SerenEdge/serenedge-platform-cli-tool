@@ -586,15 +586,25 @@ export function buildServer(
     "submit_plan",
     {
       description:
-        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries. Defaults to the current project.",
-      inputSchema: { project: z.string().optional(), plan: z.any(), apply: z.boolean().optional() },
+        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries. Every new task must be priceable: give it manualEffort and agentEffort (1 to 5) or points, otherwise it is rejected (an unpriced task earns nothing). To plan the work for a client revision request, pass revision (e.g. REV-3, needs revision.plan): the new tasks are then created as revision tasks paid from the revision budget (revision points), and the request moves to planned. A revision plan may only add new tasks. Defaults to the current project.",
+      inputSchema: {
+        project: z.string().optional(),
+        plan: z.any(),
+        apply: z.boolean().optional(),
+        revision: z.string().optional(),
+      },
     },
-    async ({ project, plan, apply }) => {
+    async ({ project, plan, apply, revision }) => {
       const picked = pickProject(project);
       if ("error" in picked) return errorResult(picked.error);
       const res = await api("/api/agent/plan", {
         method: "POST",
-        body: { project: picked.slug, plan, apply: apply ?? false },
+        body: {
+          project: picked.slug,
+          plan,
+          apply: apply ?? false,
+          ...(revision ? { revision } : {}),
+        },
       });
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
@@ -622,7 +632,7 @@ export function buildServer(
     "get_risk_context",
     {
       description:
-        "Compute a fresh risk summary (stale in-review tasks, over-capacity developers, the longest blocked chain, overdue tasks, KB entries that may be out of date) and get a prompt to write a short narrative from it. Write the narrative yourself, then call submit_risk_narrative. Requires plan.write. Defaults to the current project.",
+        "Compute a fresh risk summary (stale in-review tasks, the longest blocked chain, overdue tasks, KB entries that may be out of date) and get a prompt to write a short narrative from it. Write the narrative yourself, then call submit_risk_narrative. Requires plan.write. Defaults to the current project.",
       inputSchema: { project: z.string().optional() },
     },
     async ({ project }) => {
@@ -670,7 +680,7 @@ export function buildServer(
     "list_my_projects",
     {
       description:
-        "Every SerenEdge project you can work in, with your roles and open task count. The one mapped to this repo is marked `current`.",
+        "Every open SerenEdge project you can work in (completed projects are closed to the CLI), with your roles and open task count. The one mapped to this repo is marked `current`.",
       inputSchema: {},
     },
     async () => {
@@ -680,8 +690,17 @@ export function buildServer(
       if (!res.ok) return errorResult(res.error);
       // The spread passes roles and open_tasks through, as the tool
       // description promises.
+      // A completed project is closed to the CLI, so it is no longer in the
+      // list. A repo can still be mapped to one: say so instead of showing it
+      // as current.
+      const stillOpen = c.project !== null && res.projects.some((p) => p.slug === c.project);
       return textResult({
-        current: c.project,
+        current: stillOpen ? c.project : null,
+        ...(c.project && !stillOpen
+          ? {
+              note: `This repo is mapped to "${c.project}", which is completed or no longer available to you, so it is closed to the CLI. Pick another project with switch_project.`,
+            }
+          : {}),
         projects: res.projects.map((p) => ({ ...p, current: p.slug === c.project })),
       });
     },

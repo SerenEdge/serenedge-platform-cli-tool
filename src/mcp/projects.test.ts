@@ -108,6 +108,22 @@ describe("mcp server context resolution", () => {
     expect(payload.projects.find((p) => p.slug === "other")?.current).toBe(false);
   });
 
+  it("list_my_projects does not show a completed mapped project as current", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          projects: [{ slug: "other", name: "Other", status: "active", roles: [], open_tasks: 0 }],
+        }),
+        { status: 200 },
+      ),
+    );
+    const { client } = await connect(withProject("done-project"));
+    const res = await client.callTool({ name: "list_my_projects", arguments: {} });
+    const payload = JSON.parse(text(res)) as { current: string | null; note?: string };
+    expect(payload.current).toBeNull();
+    expect(payload.note).toContain("done-project");
+  });
+
   it("switch_project writes a valid slug", async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(

@@ -16,7 +16,8 @@ Then produce a plan in the SerenEdge JSON schema:
   `acceptance_criteria` (testable), `definition_of_done`, `agent_prompt`
   (concrete: name files/paths), `manual_steps` (`[{ description }]`),
   `manual_effort` / `agent_effort` (1-5, for computed points) or an explicit
-  `points`, `estimate_hours`, `slot_week`, `milestone` (by name),
+  `points` (required for every new task: an unpriced task earns nothing, so
+  `submit_plan` rejects it), `estimate_hours`, `slot_week`, `milestone` (by name),
   `depends_on` (other tasks' `temp_id`s in this plan), `env_vars`
   (`[{ name, description, is_secret, source }]`), `kb_seeds`
   (`[{ type, title, body }]` for KB entries this task should seed).
