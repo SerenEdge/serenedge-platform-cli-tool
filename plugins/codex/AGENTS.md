@@ -10,8 +10,16 @@ MCP server is configured (`serenedge mcp`). Use it like this:
   prompt. Follow the agent prompt. Work only on that branch.
 - Finishing: run the tests, satisfy every definition-of-done item, write a
   3-6 sentence summary (add a `Dependencies:` line naming any task keys this
-  work now depends on, or that now depend on it), commit and push, then call
-  `submit_for_review` with the key and summary.
+  work now depends on, or that now depend on it), commit (`<KEY>: short
+  imperative summary`) and push, open the pull request into the task's
+  `target_branch` (normally `dev`, never `main`) with `gh pr create`, then call
+  `submit_for_review` with the key, the summary and the PR URL as `prUrl`
+  (required: a task cannot be submitted without its PR).
+- Rules: branches are `task/<KEY>-<slug>` (`issue/<KEY>-<slug>` for an issue
+  task); never commit to `main` or `dev`; no `Co-Authored-By` trailer or AI
+  attribution anywhere; never commit secrets or `.env`; no new dependencies
+  without asking; submit only finished work, because submitting stops your
+  clock.
 - Knowledge: `propose_kb` writes a KB entry live, attributed to your task
   (conventions and deprecations wait for approval instead). To change an
   existing entry pass its `entryKey` and the `baseVersion` you read with

@@ -103,10 +103,15 @@ cannot write a note explaining the connection, do not create the link.
    its URL and do not open another. If it does not, run `gh pr create --base
    <target_branch> --head <branch>` with the title `<KEY>: <task title>` and a
    body made of your summary from step 3. No attribution lines in the title or
-   body. If `gh` is unavailable or not signed in, give the developer the
-   branch name and tell them to open the PR against `<target_branch>`.
-9. Call `submit_for_review` with the task key and the summary (and
-   `kbWaiverReason` if step 5 found nothing). If the call returns a
+   body. Take the PR URL from the command's output (or `gh pr view --json
+   url -q .url`). A pull request is required: the task cannot be submitted
+   without one. If `gh` is unavailable or not signed in, give the developer
+   the branch name, ask them to open the PR against `<target_branch>` and
+   paste its URL back to you, and wait for it before step 9.
+9. Call `submit_for_review` with the task key, the summary, the PR URL from
+   step 8 as `prUrl` (required: it is the link the reviewer clicks on the
+   review card), and `kbWaiverReason` if step 5 found nothing. If the call
+   returns a
    "not ready for review" or "unregistered environment variables" error, fix
    each listed item and try again. If it says the task was sent back and needs
    `/serenedge rework` first, tell the user to run that.

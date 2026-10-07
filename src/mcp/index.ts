@@ -224,17 +224,22 @@ export function buildServer(
     "submit_for_review",
     {
       description:
-        "Move your task to in_review with a short summary. The KB contribution gate (A-033) runs first; pass kbWaiverReason to waive the KB proposal requirement when the work genuinely has no such change.",
+        "Move your task to in_review with a short summary. The KB contribution gate (A-033) runs first; pass kbWaiverReason to waive the KB proposal requirement when the work genuinely has no such change. prUrl is required: open the pull request for the task branch first and pass its URL, which the reviewer opens from the review card.",
       inputSchema: {
         key: z.string(),
         summary: z.string(),
         kbWaiverReason: z.string().optional(),
+        prUrl: z.string(),
       },
     },
-    async ({ key, summary, kbWaiverReason }) => {
+    async ({ key, summary, kbWaiverReason, prUrl }) => {
       const res = await api(`/api/agent/tasks/${encodeURIComponent(key)}/submit`, {
         method: "POST",
-        body: { summary, ...(kbWaiverReason ? { kbWaiverReason } : {}) },
+        body: {
+          summary,
+          prUrl,
+          ...(kbWaiverReason ? { kbWaiverReason } : {}),
+        },
       });
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
