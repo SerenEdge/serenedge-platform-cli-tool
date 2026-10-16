@@ -164,6 +164,24 @@ export function buildServer(
   );
 
   server.registerTool(
+    "list_ready_tasks",
+    {
+      description:
+        "List ready tasks nobody holds yet and you may claim (highest points first), optionally for one project slug. list_my_tasks only shows tasks already assigned to you; use this to find new work, then claim_task.",
+      inputSchema: { project: z.string().optional() },
+    },
+    async ({ project }) => {
+      const c = ctx();
+      if ("error" in c) return errorResult(c.error);
+      const slug = project ?? c.project;
+      const res = await api(
+        `/api/agent/ready-tasks${slug ? `?project=${encodeURIComponent(slug)}` : ""}`,
+      );
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
     "get_task",
     {
       description: "Get one task by key, including its manual steps and agent prompt.",

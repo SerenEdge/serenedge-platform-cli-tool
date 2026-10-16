@@ -54,6 +54,7 @@ describe("mcp server", () => {
       "link_kb",
       "list_my_projects",
       "list_my_tasks",
+      "list_ready_tasks",
       "propose_kb",
       "query_kb",
       "read_kb",
