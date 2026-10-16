@@ -14,8 +14,13 @@ the existing PR updates itself instead of a second one being opened.
 
 Wrap up the task you have been working on:
 
-1. Run the project's test suite. If tests fail, fix them before continuing;
-   do not submit failing work.
+1. Run the superpowers verification-before-completion skill: run the
+   project's full test suite (and lint and typecheck if the project has them)
+   in this session and read the output. If anything fails, fix it before
+   continuing. Do not submit work without passing output you have seen. If
+   `serenedge status --json` reports `superpowers` as `missing`, tell the
+   user to install it (`claude plugin install superpowers@claude-plugins-official`)
+   and stop.
 2. Make sure every item in the task's `definition_of_done` is satisfied. Call
    `get_task` again if you need to re-read it. Any GitHub-style checkbox left
    as `- [ ]` will block the review transition.

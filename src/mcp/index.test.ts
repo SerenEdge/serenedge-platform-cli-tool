@@ -33,14 +33,19 @@ describe("mcp server", () => {
     const client = await connectedClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "approve_and_merge",
       "ask_kb",
       "ask_task_question",
       "claim_task",
+      "comment_review",
       "draft_kb_context",
       "draft_kb_proposals",
       "draft_tasks_context",
+      "flag_blocked",
       "get_context",
       "get_project_summary",
+      "get_review_context",
+      "get_review_queue",
       "get_revision",
       "get_risk_context",
       "get_task",
@@ -53,6 +58,7 @@ describe("mcp server", () => {
       "query_kb",
       "read_kb",
       "register_env_var",
+      "request_changes",
       "serenedge_status",
       "start_rework",
       "start_task",
@@ -61,6 +67,7 @@ describe("mcp server", () => {
       "submit_risk_narrative",
       "switch_project",
       "unlink_kb",
+      "write_kb",
     ]);
   });
 

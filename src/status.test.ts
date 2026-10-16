@@ -134,4 +134,19 @@ describe("buildStatus", () => {
     const s = await buildStatus({ cwd: process.cwd(), offline: true });
     expect(JSON.stringify(s)).not.toContain("super-secret-token");
   });
+
+  it("reports unknown superpowers when no detector is given", async () => {
+    const s = await buildStatus({ cwd: process.cwd(), offline: true });
+    expect(s.superpowers).toBe("unknown");
+  });
+
+  it("reports what the injected detector says", async () => {
+    writeConfig({ url: "http://x", token: "t", user: { name: "A", email: "a@b.c" } });
+    const s = await buildStatus({
+      cwd: process.cwd(),
+      offline: true,
+      superpowers: () => "missing",
+    });
+    expect(s.superpowers).toBe("missing");
+  });
 });

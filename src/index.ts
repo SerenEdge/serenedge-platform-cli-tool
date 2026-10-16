@@ -22,10 +22,18 @@ import {
   currentProject,
   readConfig,
   recordAuthResult,
+  repoRoot,
   setCurrentProject,
   writeConfig,
 } from "./config.js";
+import {
+  applyRepoBlock,
+  REPO_BLOCK_VERSION,
+  renderRepoBlock,
+  repoBlockState,
+} from "./repo-block.js";
 import { buildStatus } from "./status.js";
+import { detectSuperpowers, SUPERPOWERS_INSTALL } from "./superpowers.js";
 
 /** `dist/index.js` when bundled, `src/index.ts` from source: both sit one
  * directory below the package root, so the same relative walk works for each. */
@@ -301,7 +309,11 @@ async function mcp(): Promise<void> {
 }
 
 async function statusCmd(opts: { json?: boolean; offline?: boolean }): Promise<void> {
-  const payload = await buildStatus({ cwd: process.cwd(), offline: opts.offline === true });
+  const payload = await buildStatus({
+    cwd: process.cwd(),
+    offline: opts.offline === true,
+    superpowers: opts.offline ? undefined : detectSuperpowers,
+  });
   if (opts.json) {
     console.log(JSON.stringify(payload));
     return;
@@ -325,6 +337,9 @@ async function statusCmd(opts: { json?: boolean; offline?: boolean }): Promise<v
   const who = payload.user?.name ?? payload.user?.email ?? "unknown user";
   console.log(`Signed in as ${who} at ${payload.url}`);
   console.log(payload.project ? `Project: ${payload.project}` : "No project mapped to this repo.");
+  if (payload.superpowers === "missing") {
+    console.log(`Superpowers plugin: missing. Install it with \`${SUPERPOWERS_INSTALL}\`.`);
+  }
 }
 
 /** Shape of one entry from `GET /api/agent/projects` (A-080). */
@@ -394,6 +409,124 @@ function projectShowCmd(opts: { json?: boolean }): void {
   console.log(current ?? "No project mapped to this repo. Run `serenedge project use <slug>`.");
 }
 
+/** The files `repo init` manages, and the template each one gets (A-200). */
+const REPO_BLOCK_FILES = [
+  { file: "CLAUDE.md", template: "claude" },
+  { file: "AGENTS.md", template: "codex" },
+] as const;
+
+function repoTemplate(name: string): string {
+  return readFileSync(join(PACKAGE_ROOT, "templates", `repo-block.${name}.md`), "utf8");
+}
+
+/**
+ * Writes or refreshes the SerenEdge block in CLAUDE.md and AGENTS.md at the
+ * git root. Head-only as a convenience: the real control is that only the
+ * Head commits it to the default branch.
+ */
+async function repoInitCmd(opts: { project?: string; dryRun?: boolean }): Promise<void> {
+  const config = readConfig();
+  if (!config) {
+    console.error("Not signed in. Run `serenedge login`.");
+    process.exit(1);
+  }
+  const cwd = process.cwd();
+  const root = repoRoot(cwd);
+  if (!root) {
+    console.error("Run this inside a git repository.");
+    process.exit(1);
+  }
+  const slug = opts.project ?? currentProject(cwd);
+  if (!slug) {
+    console.error(
+      "This repo is not mapped to a project. Run `serenedge project use <slug>` first, or pass --project.",
+    );
+    process.exit(1);
+  }
+  const base = config.url.replace(/\/$/, "");
+  const res = await fetch(`${base}/api/agent/projects/${encodeURIComponent(slug)}/summary`, {
+    headers: { authorization: `Bearer ${config.token}` },
+  });
+  noteAuth(res, config.url, config.url);
+  if (!res.ok) {
+    console.error(`Could not load project "${slug}" (${res.status})`);
+    process.exit(1);
+  }
+  const { project } = (await res.json()) as {
+    project: { slug: string; name: string; key: string; can_plan_write: boolean };
+  };
+  if (!project.can_plan_write) {
+    console.error("Only a Project Head can initialise this repo.");
+    process.exit(1);
+  }
+
+  const vars = { name: project.name, key: project.key, slug: project.slug, url: base };
+  const done: Record<string, string> = {
+    create: "created",
+    append: "added the SerenEdge block",
+    replace: "updated the SerenEdge block",
+  };
+  let failed = false;
+  let changed = false;
+  for (const { file, template } of REPO_BLOCK_FILES) {
+    const path = join(root, file);
+    const existing = existsSync(path) ? readFileSync(path, "utf8") : null;
+    const result = applyRepoBlock(existing, renderRepoBlock(repoTemplate(template), vars));
+    if ("error" in result) {
+      console.error(`${file} ${result.error}`);
+      failed = true;
+      continue;
+    }
+    if (result.action === "unchanged") {
+      console.log(`${file}: already up to date`);
+      continue;
+    }
+    changed = true;
+    if (opts.dryRun) {
+      console.log(`${file}: would ${result.action}`);
+      continue;
+    }
+    writeFileSync(path, result.next);
+    console.log(`${file}: ${done[result.action]}`);
+  }
+  if (opts.dryRun && changed) {
+    console.log(`\n${renderRepoBlock(repoTemplate("claude"), vars)}`);
+  }
+  if (failed) process.exit(1);
+  if (changed && !opts.dryRun) {
+    console.log(
+      "\nCommit CLAUDE.md and AGENTS.md to the default branch so every developer's agent loads them.",
+    );
+  }
+}
+
+/** The SerenEdge commands need superpowers; say how to get it, never install it. */
+function noteSuperpowers(): void {
+  if (detectSuperpowers() === "missing") {
+    console.log("\nThe SerenEdge commands need the superpowers plugin. Install it with:");
+    console.log(`  ${SUPERPOWERS_INSTALL}`);
+  }
+}
+
+function repoStatusCmd(opts: { json?: boolean }): void {
+  const root = repoRoot(process.cwd());
+  if (!root) {
+    console.error("Run this inside a git repository.");
+    process.exit(1);
+  }
+  const files = Object.fromEntries(
+    REPO_BLOCK_FILES.map(({ file }) => {
+      const path = join(root, file);
+      return [file, repoBlockState(existsSync(path) ? readFileSync(path, "utf8") : null)];
+    }),
+  );
+  if (opts.json) {
+    console.log(JSON.stringify({ version: REPO_BLOCK_VERSION, files }));
+    return;
+  }
+  for (const [file, state] of Object.entries(files)) console.log(`${file}: ${state}`);
+}
+
 function registerMcpServer(): void {
   // Windows: a bare `spawn("serenedge")` is ENOENT (pnpm's global bin holds
   // serenedge.CMD, and Node 20+ refuses to spawn a .CMD without a shell), so
@@ -403,13 +536,7 @@ function registerMcpServer(): void {
       ? ["mcp", "add", "-s", "user", "serenedge", "--", "cmd", "/c", "serenedge", "mcp"]
       : ["mcp", "add", "-s", "user", "serenedge", "--", "serenedge", "mcp"];
 
-  const added = spawnSync("claude", args, { encoding: "utf8" });
-  const output = `${added.stdout ?? ""}${added.stderr ?? ""}`;
-  // Already registered is the normal case on every reinstall, not a failure.
-  if (/already exists/i.test(output)) {
-    console.log("The serenedge MCP server is already registered under user scope.");
-    return;
-  }
+  const added = spawnSync("claude", args, { stdio: "inherit" });
   if (added.status === 0) {
     console.log("Registered the serenedge MCP server under user scope.");
     console.log("Restart Claude Code (or reconnect it from /mcp) before the tools appear.");
@@ -467,18 +594,13 @@ function installClaudeCode(): void {
     stdio: "inherit",
   });
   if (added.status === 0) {
-    // `plugin install` on an already-installed plugin is a no-op, and Claude
-    // Code keeps its own cached copy of the pack from the first install: so a
-    // plain reinstall left new commands (and renamed ones) invisible. Remove
-    // the old registration first so the install copies the files we just wrote.
-    spawnSync("claude", ["plugin", "uninstall", "serenedge@serenedge"], { stdio: "ignore" });
     const installed = spawnSync("claude", ["plugin", "install", "serenedge@serenedge", "-y"], {
       stdio: "inherit",
     });
     if (installed.status === 0) {
       console.log("Registered the plugin with Claude Code.");
-      console.log("Run /reload-plugins in Claude Code (or start a new session) to load the new commands.");
       registerMcpServer();
+      noteSuperpowers();
       return;
     }
   }
@@ -486,6 +608,7 @@ function installClaudeCode(): void {
   console.log(`  claude plugin marketplace add ${target}`);
   console.log("  claude plugin install serenedge@serenedge");
   registerMcpServer();
+  noteSuperpowers();
 }
 
 function installCodex(): void {
@@ -499,8 +622,9 @@ function installCodex(): void {
     writeFileSync(configToml, `${current.trimEnd()}\n\n${block}\n`);
     console.log(`Added the serenedge MCP server to ${configToml}`);
   }
-  console.log("\nAdd this to your repo's AGENTS.md so the agent knows the workflow:\n");
-  console.log(readFileSync(join(PLUGINS_DIR, "codex", "AGENTS.md"), "utf8"));
+  console.log(
+    "\nThe workflow instructions live in your repo's AGENTS.md. Your Project Head writes them with `serenedge repo init`; check with `serenedge repo status`.",
+  );
 }
 
 function install(agent: string): void {
@@ -606,6 +730,22 @@ program
   .argument("<agent>", "claude-code | codex")
   .description("Install the SerenEdge command pack for a coding agent")
   .action(install);
+
+const repo = program
+  .command("repo")
+  .description("SerenEdge instructions in this repo's CLAUDE.md and AGENTS.md");
+repo
+  .command("init")
+  .description("Write or refresh the SerenEdge block (Project Head)")
+  .option("--project <slug>", "Project slug (defaults to this repo's mapping)")
+  .option("--dry-run", "Show what would change and write nothing")
+  .action(repoInitCmd);
+repo
+  .command("status")
+  .description("Report whether the SerenEdge block is present and current")
+  .option("--json", "Machine-readable output")
+  .action(repoStatusCmd);
+
 
 program.parseAsync().catch((error) => {
   console.error(error instanceof Error ? error.message : error);

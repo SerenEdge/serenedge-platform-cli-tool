@@ -190,7 +190,7 @@ function ancestors(key: string): string[] {
 }
 
 /** Nearest ancestor of `cwd` containing `.git`, or null. */
-function repoRoot(cwd: string): string | null {
+export function repoRoot(cwd: string): string | null {
   let dir = resolve(cwd);
   for (;;) {
     if (existsSync(join(dir, ".git"))) return dir;

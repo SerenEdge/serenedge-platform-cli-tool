@@ -246,6 +246,124 @@ export function buildServer(
   );
 
   server.registerTool(
+    "flag_blocked",
+    {
+      description:
+        "Say a task cannot go on without a person: a conflict or failing check you cannot fix, an unclear requirement, missing access, or a manual step. Give a specific reason (5 to 500 characters). The Project Head and reviewers get an in-app and browser alert. Then stop work on this task.",
+      inputSchema: { key: z.string(), reason: z.string() },
+    },
+    async ({ key, reason }) => {
+      const res = await api(`/api/agent/tasks/${encodeURIComponent(key)}/blocked`, {
+        method: "POST",
+        body: { reason },
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "get_review_queue",
+    {
+      description:
+        "Reviewer: tasks waiting for review in this project, oldest first, with PR and platform check state. Needs task.review.",
+      inputSchema: { project: z.string().optional() },
+    },
+    async ({ project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(`/api/agent/review/queue?project=${encodeURIComponent(picked.slug)}`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "get_review_context",
+    {
+      description:
+        "Reviewer: everything needed to judge one task. Its bundle, the developer's summary, live PR state and check runs, the diff (truncated past 3000 lines), head_sha, the merge guard result and auto_mode. Pass head_sha to approve_and_merge.",
+      inputSchema: { project: z.string().optional(), task: z.string() },
+    },
+    async ({ project, task }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(
+        `/api/agent/review/context?project=${encodeURIComponent(picked.slug)}&task=${encodeURIComponent(task)}`,
+      );
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "approve_and_merge",
+    {
+      description:
+        "Reviewer, Auto Mode only (needs task.review and pr.merge). Approves and merges the task's PR once every guard passes: Auto Mode on, task in review, PR open against the task's target branch, head unchanged since get_review_context (pass its head_sha), no conflicts, the platform check and every CI check passed, hygiene gate met. Nothing merges if any fails; the failures come back.",
+      inputSchema: {
+        project: z.string().optional(),
+        task: z.string(),
+        headSha: z.string(),
+        summary: z.string(),
+      },
+    },
+    async ({ project, task, headSha, summary }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api("/api/agent/review/merge", {
+        method: "POST",
+        body: { project: picked.slug, task, headSha, summary },
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "request_changes",
+    {
+      description:
+        "Reviewer, Auto Mode only. Sends the task back to its developer. The note is what the developer's agent works from, so include the context: what is wrong and where, the failing check names with the log lines you read, or for a conflict the base branch and the instruction to rebase and resolve.",
+      inputSchema: {
+        project: z.string().optional(),
+        task: z.string(),
+        note: z.string(),
+        redoHours: z.number(),
+        kind: z.enum(["review", "ci", "conflict"]),
+      },
+    },
+    async ({ project, task, note, redoHours, kind }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api("/api/agent/review/changes", {
+        method: "POST",
+        body: { project: picked.slug, task, note, redoHours, kind },
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "comment_review",
+    {
+      description:
+        "Reviewer, any mode. Records your recommendation (approve, changes or blocked) on the task thread and alerts the Project Head and reviewers. Use it when Auto Mode is off.",
+      inputSchema: {
+        project: z.string().optional(),
+        task: z.string(),
+        verdict: z.enum(["approve", "changes", "blocked"]),
+        notes: z.string(),
+      },
+    },
+    async ({ project, task, verdict, notes }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api("/api/agent/review/comment", {
+        method: "POST",
+        body: { project: picked.slug, task, verdict, notes },
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
     "ask_task_question",
     {
       description:
@@ -405,6 +523,50 @@ export function buildServer(
           ...(baseVersion !== undefined ? { baseVersion } : {}),
           ...(deprecate ? { deprecate } : {}),
           ...(diff ? { diff } : {}),
+        },
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "write_kb",
+    {
+      description:
+        "Project Head or admin only (needs kb.approve). Writes a KB change outside any task: live at once and already reviewed, including conventions and deprecations. Omit entryKey for a new entry. To change an entry pass entryKey and the baseVersion you read with read_kb; on a version conflict, merge into the returned body and retry. deprecate: true with entryKey deprecates it. changeNote (3 to 500 characters) is recorded in the version history. Developers working a task use propose_kb instead. Editing a deprecated entry without deprecate: true keeps it deprecated; there is no way to reactivate one with this tool, use the web editor. Defaults to the current project.",
+      inputSchema: {
+        project: z.string().optional(),
+        type: z.enum([
+          "decision",
+          "interface",
+          "convention",
+          "ui_system",
+          "environment",
+          "error",
+          "glossary",
+        ]),
+        title: z.string(),
+        body: z.string(),
+        entryKey: z.string().optional(),
+        baseVersion: z.number().int().positive().optional(),
+        deprecate: z.boolean().optional(),
+        changeNote: z.string(),
+      },
+    },
+    async ({ project, type, title, body, entryKey, baseVersion, deprecate, changeNote }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api("/api/agent/kb/write", {
+        method: "POST",
+        body: {
+          project: picked.slug,
+          type,
+          title,
+          body,
+          changeNote,
+          ...(entryKey ? { entryKey } : {}),
+          ...(baseVersion !== undefined ? { baseVersion } : {}),
+          ...(deprecate ? { deprecate } : {}),
         },
       });
       return res.ok ? textResult(res.data) : errorResult(res.error);
@@ -591,7 +753,7 @@ export function buildServer(
     "submit_plan",
     {
       description:
-        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries. Every new task must be priceable: give it manualEffort and agentEffort (1 to 5) or points, otherwise it is rejected (an unpriced task earns nothing). To plan the work for a client revision request, pass revision (e.g. REV-3, needs revision.plan): the new tasks are then created as revision tasks paid from the revision budget (revision points), and the request moves to planned. A revision plan may only add new tasks. Defaults to the current project.",
+        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries. Every new task must be priceable: give it manualEffort and agentEffort (1 to 5) or points, otherwise it is rejected (an unpriced task earns nothing). On a project's first plan every kbSeed and convention must [[wikilink]] another seed or convention (the KB concept map), or the plan is rejected; later plans return kb_warnings for unconnected seeds and dangling links instead. To plan the work for a client revision request, pass revision (e.g. REV-3, needs revision.plan): the new tasks are then created as revision tasks paid from the revision budget (revision points), and the request moves to planned. A revision plan may only add new tasks. Defaults to the current project.",
       inputSchema: {
         project: z.string().optional(),
         plan: z.any(),

@@ -1,4 +1,5 @@
 import { currentProject, normalizeRepoKey, readConfig, recordAuthResult } from "./config.js";
+import type { SuperpowersState } from "./superpowers.js";
 
 export type StatusState =
   | "not_signed_in"
@@ -16,6 +17,8 @@ export type StatusPayload = {
   repo: string | null;
   project: string | null;
   state: StatusState;
+  /** "unknown" unless a detector ran: the offline session hook never spawns claude. */
+  superpowers: SuperpowersState;
 };
 
 /**
@@ -23,7 +26,12 @@ export type StatusPayload = {
  * token. `offline` skips the /api/agent/me round trip so session start stays
  * local-only and cannot hang on a dead network.
  */
-export async function buildStatus(opts: { cwd: string; offline: boolean }): Promise<StatusPayload> {
+export async function buildStatus(opts: {
+  cwd: string;
+  offline: boolean;
+  superpowers?: () => SuperpowersState;
+}): Promise<StatusPayload> {
+  const superpowers = opts.superpowers ? opts.superpowers() : "unknown";
   const config = readConfig();
   const repo = normalizeRepoKey(opts.cwd);
   const project = currentProject(opts.cwd);
@@ -37,10 +45,11 @@ export async function buildStatus(opts: { cwd: string; offline: boolean }): Prom
       repo,
       project: null,
       state: "not_signed_in",
+      superpowers,
     };
   }
 
-  const base = { installed: true as const, url: config.url, repo, project };
+  const base = { installed: true as const, url: config.url, repo, project, superpowers };
 
   if (opts.offline) {
     // A token the server has already rejected outranks the ready/no_project

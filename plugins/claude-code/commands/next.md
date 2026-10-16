@@ -4,6 +4,9 @@ description: Pick up the next SerenEdge task and start working
 
 You are working through the SerenEdge delivery platform. Do this in order:
 
+0. Run `serenedge status --json`. If `superpowers` is `missing`, tell the
+   user to run `claude plugin install superpowers@claude-plugins-official`
+   and stop.
 1. Call the `list_my_tasks` MCP tool with no arguments. It returns only the
    tasks in the project this repo is mapped to. If it reports that the repo is
    not mapped to a project, run `/serenedge project` first and stop.
@@ -24,8 +27,12 @@ You are working through the SerenEdge delivery platform. Do this in order:
    agent prompt, manual steps, dependencies, and the branch/git workflow) and
    a `context_version`. Read the whole bundle. Manual steps are human-only:
    do not perform them yourself.
-6. Follow the task's `agent_prompt`. Work only on the branch from step 4. Do
-   not touch other tasks.
+6. Build it with superpowers. If the `agent_prompt` ends with a
+   `Plan: <path>#<anchor>` line, read that section of the plan document in
+   this repo first. Run the superpowers executing-plans skill on the task
+   (the plan section, or the agent prompt when there is none) and the
+   test-driven-development skill for every change: failing test first. Work
+   only on the branch from step 4. Do not touch other tasks.
 7. KB entries marked `unreviewed from PROJ-12` (in the bundle's KB index, or
    as `reviewed: false` and `fromTask` in `ask_kb`, `query_kb` and `read_kb`)
    are live writes from another task that is not done yet. Use them, but if
