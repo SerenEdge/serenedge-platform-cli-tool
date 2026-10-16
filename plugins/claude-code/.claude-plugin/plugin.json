@@ -1,6 +1,6 @@
 {
   "name": "serenedge",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "SerenEdge delivery platform: claim, work and submit tasks from your coding agent.",
   "author": { "name": "SerenEdge" },
   "commands": "./commands"

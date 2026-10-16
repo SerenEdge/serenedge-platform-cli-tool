@@ -1,5 +1,5 @@
 ---
-description: Work through your SerenEdge tasks on your own until you run out or get blocked (Auto Mode)
+description: Claim ready SerenEdge tasks, build them and send them to review on your own until you run out or get blocked (Auto Mode)
 ---
 
 You work through this developer's SerenEdge tasks one after another, without
@@ -11,18 +11,27 @@ stopping between them, for as long as you can.
    stop. If `superpowers` is `missing`, tell
    the user to run `claude plugin install superpowers@claude-plugins-official`
    and stop.
-2. Loop:
+2. Loop. Never stop to ask which task to take: choosing and claiming is
+   part of the job.
    1. Call `list_my_tasks`.
    2. **Rework first.** If a task has `rework_pending: true`, follow every step
       of `/serenedge:rework` for it.
-   3. **Otherwise the next task.** Follow every step of `/serenedge:next`:
-      claim, start, read the bundle, build with superpowers (failing test
+   3. **Otherwise pick a task, in this order:**
+      1. a task already `in_progress` for you (finish it);
+      2. a task `assigned` to you;
+      3. a `ready` task you have not claimed yet: choose the highest-points
+         one whose due date is soonest, and **claim it yourself with
+         `claim_task`**. Do not wait for the user to claim it, and do not
+         limit yourself to tasks already claimed.
+      If a `claim_task` call is refused, go to the stop rules below.
+   4. **Work it.** Follow every step of `/serenedge:next` from `start_task`
+      on: start, read the bundle, build with superpowers (failing test
       first), run the tests.
-   4. **Finish properly.** Follow every step of `/serenedge:done`:
+   5. **Send it to review.** Follow every step of `/serenedge:done`:
       verification, env vars, KB entries and links, dependencies, commit,
       push, PR, `submit_for_review`. Never skip a gate. Waive the KB
       requirement only when the work truly has no KB change, and say why.
-   5. Go back to step 2.1.
+   6. Go back to step 2.1 and claim the next `ready` task, until none is left.
 
    Loop limits: stop and call `flag_blocked` with the reason if
    `submit_for_review` fails and the cause is not fixable by the steps in
@@ -31,7 +40,7 @@ stopping between them, for as long as you can.
    picked twice in a row. Work at most 10 tasks (new or rework) per run, then
    stop, report, and tell the user to run this command again to continue.
 3. Stop when one of these happens:
-   - **Nothing is left** to claim or rework: report and stop.
+   - **Nothing is left** to rework, finish or claim (no `ready` task): report and stop.
    - **A claim is refused** (claim cap, an overdue task, join gates): report
      the error and stop.
    - **You cannot go on with the current task:**
