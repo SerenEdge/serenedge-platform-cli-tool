@@ -1,6 +1,6 @@
 {
   "name": "serenedge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CLI and MCP server for the SerenEdge delivery platform - lets your coding agent claim, work and submit tasks.",
   "license": "MIT",
   "type": "module",
