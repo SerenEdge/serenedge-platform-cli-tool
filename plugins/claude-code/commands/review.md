@@ -16,7 +16,9 @@ queue once. Run this under `/loop` to keep watching it.
       check runs and `guards`.
    2. Judge the work: does the diff do what the acceptance criteria and
       definition of done ask, without breaking anything nearby? Do NOT run
-      code from the pull request by default; rely on the check runs in the
+      code from the pull request by default, and never run `serenedge ci`.
+      Read `ci_report` (`required`, `full`, `quick`, `attempts`,
+      `failures`) and `ci_change` from the context, and rely on the check runs in the
       context. Only when a doubt remains that CI cannot answer, the diff is
       small, the diff adds no install, build, setup or dependency-manifest
       changes (package.json, lockfiles, scripts, Dockerfiles, CI config), and
@@ -32,6 +34,13 @@ queue once. Run this under `/loop` to keep watching it.
         not completed, no `serenedge/dod` result yet, or `mergeable` still
         unknown): skip this task for this pass and say it is waiting for
         checks. Do not send it back and do not flag it.
+      - **`ci_change` is true** (the task changes CI files or is the CI
+        foundation): never merge it. Call `comment_review` with your verdict
+        and notes and leave the merge to a person, even with Auto Mode on.
+      - **Auto Mode on, and the guard failure lists overlapping paths** (the
+        base moved under files this PR touches): call `request_changes`
+        with `kind` `rebase`. The note starts `Rebase:` and names the base
+        branch and the paths. It never counts against the developer.
       - **Auto Mode on, the work is right, and `guards.ok` is true:** call
         `approve_and_merge` with `task`, the context's `head_sha` passed as
         `headSha`, and a one-paragraph `summary` of why it is right. If it

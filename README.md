@@ -115,6 +115,8 @@ For Claude Code, `install claude-code` copies the plugin locally, registers it a
 | `/serenedge revise` | Plan revision tasks from a client request (Project Head).           |
 | `/serenedge update` | Write a client-facing progress update (Project Head).               |
 | `/serenedge risk`   | Write the project risk narrative (Project Head).                    |
+| `/serenedge linked` | Answer from the knowledge bases of linked projects (read only).     |
+| `/serenedge release` | Open the release PR from `dev` into `main` (Project Head).         |
 
 Other commands:
 
@@ -125,6 +127,7 @@ Other commands:
 | `serenedge mcp`                                  | Start the MCP server over stdio (your agent runs this for you). |
 | `serenedge env check --project <slug> --env <n>` | Report which required environment variables are missing.        |
 | `serenedge update <id> [--set <file>]`           | Fetch a draft client update to rewrite, or post the rewrite back. |
+| `serenedge ci [--quick] [--dry-run]`             | Run the repo's local CI (`.serenedge/ci.json`) and upload the report. |
 
 Every call is authenticated with your device token and checked by the same permission engine as the web app: you only ever see tasks your roles can work. Signed-in devices show up under Settings, Connected devices, on the web app, where you can revoke one at any time.
 

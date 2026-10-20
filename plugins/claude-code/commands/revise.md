@@ -27,8 +27,9 @@ repo is mapped to.
    Break the plan into tasks with the rules in `/serenedge:plan` stage 4
    (one PR each, one type, vertical slices, a `Plan:` line in every
    `agentPrompt`). Keep it tight: revision scope does not grow past what
-   was asked for. Every task must be priceable: `manualEffort` and
-   `agentEffort` (1 to 5) or `points`. Only new tasks belong in a revision
+   was asked for. If `get_project_summary` reports `features.points: true`,
+   every task must be priced: `manualEffort` and `agentEffort` (1 to 5) or
+   `points`; if `false`, leave effort and points out. Only new tasks belong in a revision
    plan. Add `kbSeeds` for any new concept, wikilinked to the existing
    entries it relates to.
 4. Call `submit_plan` with `apply: false` and `revision` set to the request key
@@ -36,7 +37,7 @@ repo is mapped to.
    report and iterate.
 5. Once approved, call `submit_plan` again with `apply: true` and the same
    `revision` key (needs `plan.write` and `revision.plan`). The tasks are
-   created as revision tasks (revision points, paid from the revision budget),
+   created as revision tasks (revision points, paid from the revision budget on Revenue projects),
    and the request moves to planned. Each task you add lowers the revision
    point rate for all revision tasks. Do not leave `revision` out: without it the tasks count
    against the main budget and dilute the main point value. If the Project Head

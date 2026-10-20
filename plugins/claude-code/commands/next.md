@@ -16,7 +16,7 @@ You are working through the SerenEdge delivery platform. Do this in order:
    pick up something else.
    If one of your tasks is already `in_progress`, that is the task. Otherwise
    choose a task: prefer one already `assigned` to you. If none is, call
-   `list_ready_tasks` (it lists unclaimed `ready` tasks, highest points first,
+   `list_ready_tasks` (it lists unclaimed `ready` tasks, highest points first; on a project without points, soonest due date first,
    which `list_my_tasks` does not) and take the first.
 3. If the chosen task is `ready`, call `claim_task` with its key. If that
    fails (claim cap reached, an overdue task in hand, join gates not

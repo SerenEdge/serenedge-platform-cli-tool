@@ -8,11 +8,16 @@ MCP server is configured (`serenedge mcp`).
 
 - All work is a SerenEdge task. Start: call `list_my_tasks`, pick the task
   already `in_progress`, else one `assigned` to you, else the highest-points
-  `ready` task due soonest. Call `claim_task`, then `start_task`, branch off
+  `ready` task (or, on a project without points, the one with the soonest due date). Call `claim_task`, then `start_task`, branch off
   the returned `branch_name`, then `get_task` and read the whole bundle.
 - Use the superpowers skills (required): follow the task's plan section if
   its agent prompt has a `Plan:` line, write the failing test first, and run
-  the full test suite before submitting.
+  the tests as you go.
+- Once the project has `.serenedge/ci.json`, run `serenedge ci` before every
+  submit and read its output (until then run the project's tests as before).
+  After a rebase send-back (note starts `Rebase:`) `serenedge ci --quick` is
+  enough. Never edit CI files (`.serenedge/ci.json`, the local CI script,
+  workflows) unless the task is a CI change.
 - Finish: satisfy every definition-of-done item, register new env vars
   (`register_env_var`), write the KB entries the work produced
   (`propose_kb`), commit (`<KEY>: short imperative summary`, no AI or agent
@@ -36,6 +41,9 @@ MCP server is configured (`serenedge mcp`).
   reviewed). Developers use `propose_kb` inside a task.
 - Conventions are rules. An entry marked unreviewed (`reviewed: false`) is
   usable, but the code wins if they disagree.
+- Linked projects' shared KB entries are read only here: `list_linked_projects`,
+  `ask_linked_kb`, `read_linked_kb`, `linked_endpoints`. Cite them as
+  `slug:key`. Their conventions are not rules for this repo.
 
 ### Rules
 

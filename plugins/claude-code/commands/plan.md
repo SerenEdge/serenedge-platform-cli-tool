@@ -13,10 +13,14 @@ Before anything else, run `serenedge status --json`. If `superpowers` is
 ## Stage 1: Context
 
 1. Ask the Head what needs building or changing, if they have not said.
-2. Call `draft_tasks_context` with that as `intent`. It returns conventions,
+2. Call `get_project_summary` and note `features.points`. Then call `draft_tasks_context` with that as `intent`. It returns conventions,
    the closest KB entries, an example plan and the drafter prompt. It
    defaults to the current project; pass `project` only for another one.
 3. Call `query_kb` for anything the request touches. Read the repo.
+4. Call `list_linked_projects`. When the request touches a linked project
+   (an API this app calls, a shared design system), read what it shares with
+   `ask_linked_kb`, `read_linked_kb` and `linked_endpoints`, and cite it as
+   `slug:key` in the spec. Never write to a linked KB.
 
 ## Stage 2: Spec
 
@@ -51,9 +55,27 @@ Apply these rules to every task:
   write, and ends with a line
   `Plan: docs/superpowers/plans/<file>.md#<section-anchor>` pointing at the
   plan section the task implements.
-- Every task is priced: `manualEffort` and `agentEffort` (1 to 5), or
-  `points`. `submit_plan` rejects an unpriced task. Keep `estimateHours`
+- If `get_project_summary` reports `features.points: true`, every task is
+  priced: `manualEffort` and `agentEffort` (1 to 5), or `points`.
+  `submit_plan` rejects an unpriced task. If it reports `features.points:
+  false`, leave effort and points out. Keep `estimateHours` either way and
   realistic: it becomes the task's time box.
+- If the project has a linked repo, its first plan starts with exactly one
+  CI foundation task (`ciFoundation: true`). A later plan needs one too while
+  the target branch has no `.serenedge/ci.json` and no foundation task is
+  open. `submit_plan` rejects the plan otherwise. The foundation task is
+  stored as `deploy` and a CI change, and every other new task in the plan
+  depends on it. Its `definitionOfDone` covers:
+  - [ ] `.serenedge/ci.json` and a local CI command for the project's stack
+    (lint, typecheck, unit tests, integration tests if any, build), printing
+    a step marker per step
+  - [ ] a GitHub workflow with the same steps, triggered only on pull
+    requests into `main`
+  - [ ] any existing workflow that runs on `dev` pushes or pull requests
+    removed or narrowed
+  - [ ] the project convention on how CI is run and when it may change
+  - [ ] an `environment` KB entry on how to run CI locally
+  - [ ] `serenedge ci` passing on the task's own branch
 
 The plan schema:
 
@@ -63,11 +85,12 @@ Field names are exactly as written here (camelCase). Unknown keys are dropped si
 - `tasks`: each with `tempId` (unique within this plan), `title`, `type`,
   `skillTags`, `description`, `acceptanceCriteria`, `definitionOfDone`,
   `agentPrompt`, `manualSteps` (`[{ description }]`), `manualEffort` /
-  `agentEffort` or `points`, `estimateHours`, `slotWeek`, `milestone` (by
+  `agentEffort` or `points` (points projects only), `estimateHours`, `slotWeek`, `milestone` (by
   name), `dependsOn` (other `tempId`s), `envVars`
   (`[{ name, description, isSecret, source }]`), `kbSeeds`
-  (`[{ type, title, body }]`). Set `existingKey` to match an existing task
-  by key instead of by title.
+  (`[{ type, title, body }]`), `ciFoundation` and `ciChange` (booleans; a
+  task that changes the CI files sets `ciChange`). Set `existingKey` to match
+  an existing task by key instead of by title.
 - `conventions`: `[{ title, body }]` for project-wide rules.
 
 ## Stage 5: KB concept map, submit, record

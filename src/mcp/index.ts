@@ -315,7 +315,7 @@ export function buildServer(
     "approve_and_merge",
     {
       description:
-        "Reviewer, Auto Mode only (needs task.review and pr.merge). Approves and merges the task's PR once every guard passes: Auto Mode on, task in review, PR open against the task's target branch, head unchanged since get_review_context (pass its head_sha), no conflicts, the platform check and every CI check passed, hygiene gate met. Nothing merges if any fails; the failures come back.",
+        "Reviewer, Auto Mode only (needs task.review and pr.merge). Approves and merges the task's PR once every guard passes: Auto Mode on, task in review, PR open against the task's target branch, head unchanged since get_review_context (pass its head_sha), no conflicts, the platform check and every CI check passed, the local CI report passed for the head (or a quick report after a rebase), hygiene gate met. A task that changes CI is never merged here: use comment_review. Nothing merges if any fails; the failures come back.",
       inputSchema: {
         project: z.string().optional(),
         task: z.string(),
@@ -338,13 +338,13 @@ export function buildServer(
     "request_changes",
     {
       description:
-        "Reviewer, Auto Mode only. Sends the task back to its developer. The note is what the developer's agent works from, so include the context: what is wrong and where, the failing check names with the log lines you read, or for a conflict the base branch and the instruction to rebase and resolve.",
+        "Reviewer, Auto Mode only. Sends the task back to its developer. The note is what the developer's agent works from, so include the context: what is wrong and where, the failing check names with the log lines you read, or for a conflict the base branch and the instruction to rebase and resolve. Use kind rebase when the merge guard says the target branch changed in files this task touches since its CI run: list those paths and say to rebase on the target branch, run serenedge ci --quick, push and resubmit. A rebase send-back never counts against the developer: no review failure, no lost points and no late hours.",
       inputSchema: {
         project: z.string().optional(),
         task: z.string(),
         note: z.string(),
         redoHours: z.number(),
-        kind: z.enum(["review", "ci", "conflict"]),
+        kind: z.enum(["review", "ci", "conflict", "rebase"]),
       },
     },
     async ({ project, task, note, redoHours, kind }) => {
@@ -413,13 +413,72 @@ export function buildServer(
     "get_project_summary",
     {
       description:
-        "Schedule status, milestone progress and task counts. Defaults to the current project.",
+        "Project tracking type and features (points, money), schedule status, milestone progress and task counts. Defaults to the current project.",
       inputSchema: { project: z.string().optional() },
     },
     async ({ project }) => {
       const picked = pickProject(project);
       if ("error" in picked) return errorResult(picked.error);
       const res = await api(`/api/agent/projects/${encodeURIComponent(picked.slug)}/summary`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  // --- Releases, dev into main (A-241) -------------------------------------
+
+  server.registerTool(
+    "get_release_status",
+    {
+      description:
+        "Project Head, Owner or admin. The open release PR (dev into main) with its GitHub check runs, the merge commits on dev since the last merged release oldest first (sha, parent_sha, task_key and the task's latest full local CI report), and waiting_for_fixes (the keys of open fix tasks of CI escapes recorded on this release; the release waits for them). release is null when none is open. Defaults to the current project.",
+      inputSchema: { project: z.string().optional() },
+    },
+    async ({ project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(`/api/agent/projects/${encodeURIComponent(picked.slug)}/release`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "open_release_pr",
+    {
+      description:
+        "Project Head, Owner or admin. Opens the release PR from dev into main through the GitHub App, titled Release <date>, listing the tasks merged since the last release. Refused when a release PR is already open or dev has nothing new. A person merges it on GitHub, with a merge commit (a squash or rebase merge keeps main...dev from advancing, so later releases would list old merges again). Defaults to the current project.",
+      inputSchema: { project: z.string().optional() },
+    },
+    async ({ project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(`/api/agent/projects/${encodeURIComponent(picked.slug)}/release`, {
+        method: "POST",
+      });
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "report_ci_escape",
+    {
+      description:
+        "Project Head, Owner or admin, after the Head confirmed the finding. Records a CI escape on a done task whose local CI report said pass while its own head fails the same step: a strike against its assignee, a points penalty (the project's CI escape share of the task's credited points, on projects with points), and a linked fix task <KEY>-fix worth 0 points, in progress for the same developer with fixHours as its time box (unassigned when that developer left the project). The release waits for the fix. Defaults to the current project.",
+      inputSchema: {
+        project: z.string().optional(),
+        task: z.string(),
+        releasePrUrl: z.string(),
+        failingStep: z.string(),
+        evidence: z.string(),
+        fixHours: z.number(),
+      },
+    },
+    async ({ project, task, releasePrUrl, failingStep, evidence, fixHours }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(`/api/agent/tasks/${encodeURIComponent(task)}/ci-escape`, {
+        method: "POST",
+        body: { project: picked.slug, releasePrUrl, failingStep, evidence, fixHours },
+      });
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
   );
@@ -443,15 +502,19 @@ export function buildServer(
     "ask_kb",
     {
       description:
-        "Search a project's knowledge base for a fuzzy question and get back the most relevant entries as key, title, type and a short snippet. Bodies are not included: call read_kb with a key for the one entry you want. For an exact question, use query_kb instead. No answer is synthesized: read the entries and write the answer yourself. Defaults to the current project.",
-      inputSchema: { project: z.string().optional(), question: z.string() },
+        "Search a project's knowledge base for a fuzzy question and get back the most relevant entries as key, title, type and a short snippet. Bodies are not included: call read_kb with a key for the one entry you want. For an exact question, use query_kb instead. No answer is synthesized: read the entries and write the answer yourself. A separate `linked` group lists the best hits from linked projects (read them with read_linked_kb); pass includeLinked: false to skip it. Defaults to the current project.",
+      inputSchema: {
+        project: z.string().optional(),
+        question: z.string(),
+        includeLinked: z.boolean().optional(),
+      },
     },
-    async ({ project, question }) => {
+    async ({ project, question, includeLinked }) => {
       const picked = pickProject(project);
       if ("error" in picked) return errorResult(picked.error);
-      const res = await api(
-        `/api/agent/kb/ask?project=${encodeURIComponent(picked.slug)}&q=${encodeURIComponent(question)}`,
-      );
+      const params = new URLSearchParams({ project: picked.slug, q: question });
+      if (includeLinked === false) params.set("linked", "0");
+      const res = await api(`/api/agent/kb/ask?${params.toString()}`);
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
   );
@@ -608,6 +671,84 @@ export function buildServer(
       const params = new URLSearchParams({ project: picked.slug, key });
       if (depth != null) params.set("depth", String(depth));
       const res = await api(`/api/agent/kb/entry?${params.toString()}`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  // Linked projects (A-225): read-only access to the KBs a system admin linked
+  // to the current project, within the entry kinds each link shares.
+  server.registerTool(
+    "list_linked_projects",
+    {
+      description:
+        "List the projects linked to the current project and which knowledge base entry kinds each one shares with it. Linked knowledge is read only: you can search and read it, never write it. Defaults to the current project.",
+      inputSchema: { project: z.string().optional() },
+    },
+    async ({ project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const res = await api(
+        `/api/agent/linked/projects?project=${encodeURIComponent(picked.slug)}`,
+      );
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "ask_linked_kb",
+    {
+      description:
+        "Search the knowledge bases of projects linked to the current project, for example the backend's API decisions while you work on the mobile app. Returns key, title, type, the owning project slug and a snippet per hit, merged by relevance. Pass linked with a project slug to search only that one. Read a hit in full with read_linked_kb.",
+      inputSchema: {
+        question: z.string(),
+        linked: z.string().optional(),
+        project: z.string().optional(),
+      },
+    },
+    async ({ question, linked, project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const params = new URLSearchParams({ project: picked.slug, q: question });
+      if (linked) params.set("linked", linked);
+      const res = await api(`/api/agent/linked/search?${params.toString()}`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "read_linked_kb",
+    {
+      description:
+        "Read one entry from a linked project's knowledge base in full, plus its neighbourhood within what that project shares. linked is the linked project's slug (from list_linked_projects or an ask_linked_kb hit). Read only.",
+      inputSchema: {
+        linked: z.string(),
+        key: z.string(),
+        depth: z.number().int().min(1).max(3).optional(),
+        project: z.string().optional(),
+      },
+    },
+    async ({ linked, key, depth, project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const params = new URLSearchParams({ project: picked.slug, linked, key });
+      if (depth != null) params.set("depth", String(depth));
+      const res = await api(`/api/agent/linked/entry?${params.toString()}`);
+      return res.ok ? textResult(res.data) : errorResult(res.error);
+    },
+  );
+
+  server.registerTool(
+    "linked_endpoints",
+    {
+      description:
+        "List every HTTP endpoint a linked project documents in its interface entries (method, path, note and the entry it comes from). Use it to call another project's API correctly. Empty when that project does not share interface entries.",
+      inputSchema: { linked: z.string(), project: z.string().optional() },
+    },
+    async ({ linked, project }) => {
+      const picked = pickProject(project);
+      if ("error" in picked) return errorResult(picked.error);
+      const params = new URLSearchParams({ project: picked.slug, linked });
+      const res = await api(`/api/agent/linked/endpoints?${params.toString()}`);
       return res.ok ? textResult(res.data) : errorResult(res.error);
     },
   );
@@ -771,7 +912,7 @@ export function buildServer(
     "submit_plan",
     {
       description:
-        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries. Every new task must be priceable: give it manualEffort and agentEffort (1 to 5) or points, otherwise it is rejected (an unpriced task earns nothing). On a project's first plan every kbSeed and convention must [[wikilink]] another seed or convention (the KB concept map), or the plan is rejected; later plans return kb_warnings for unconnected seeds and dangling links instead. To plan the work for a client revision request, pass revision (e.g. REV-3, needs revision.plan): the new tasks are then created as revision tasks paid from the revision budget (revision points), and the request moves to planned. A revision plan may only add new tasks. Defaults to the current project.",
+        "Validate a project plan (milestones, tasks, conventions) and diff it against existing tasks. apply:false (default) is a dry run - review the diff, then call again with apply:true (requires plan.write) to create/update the tasks, dependencies, env vars and KB entries. On a project that uses points (get_project_summary features.points), every new task must be priceable: give it manualEffort and agentEffort (1 to 5) or points, otherwise it is rejected. On a project without points, effort and points are ignored. On a project's first plan every kbSeed and convention must [[wikilink]] another seed or convention (the KB concept map), or the plan is rejected; later plans return kb_warnings for unconnected seeds and dangling links instead. On a project with a linked repo, a task may set ciFoundation:true (the CI foundation task: it adds .serenedge/ci.json, a local CI command and a GitHub workflow; it is always a deploy task and a CI change) or ciChange:true (a task that changes the CI files); both apply only to new tasks, and a person reviews and merges such tasks. The first plan must have exactly one ciFoundation task, and on apply every other new task depends on it, so it must not depend on a task of the same plan; a later plan is rejected the same way while the target branch has no .serenedge/ci.json and no open foundation task exists. To plan the work for a client revision request, pass revision (e.g. REV-3, needs revision.plan): the new tasks are then created as revision tasks paid from the revision budget (revision points), and the request moves to planned. A revision plan may only add new tasks. Defaults to the current project.",
       inputSchema: {
         project: z.string().optional(),
         plan: z.any(),

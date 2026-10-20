@@ -14,10 +14,21 @@ the existing PR updates itself instead of a second one being opened.
 
 Wrap up the task you have been working on:
 
-1. Run the superpowers verification-before-completion skill: run the
-   project's full test suite (and lint and typecheck if the project has them)
-   in this session and read the output. If anything fails, fix it before
-   continuing. Do not submit work without passing output you have seen. If
+1. Run the superpowers verification-before-completion skill, which reads the
+   output of the local CI gate. Run `serenedge ci` in this session. If it
+   fails, read the failing step, fix it, commit, and run it again until it
+   passes. Never edit CI files (`.serenedge/ci.json`, the local CI script,
+   workflows) unless the task is a CI change. After the PR exists in step 8,
+   if you added any commit after the passing run, run `serenedge ci` again
+   before step 9: the platform only accepts a passing report for the PR head.
+   A Rebase rework (note starts `Rebase:`) that already has a passing
+   `serenedge ci --quick` on the pushed head needs no other run: submit with
+   it, the platform accepts an earlier passing full report plus a passing
+   quick report on the new head.
+   Keep the step table the CLI printed for the summary in step 3. A project
+   with no `.serenedge/ci.json` yet keeps the old check (run the full test
+   suite, and lint and typecheck if it has them) until the CI foundation task
+   is merged. Do not submit work without passing output you have seen. If
    `serenedge status --json` reports `superpowers` as `missing`, tell the
    user to install it (`claude plugin install superpowers@claude-plugins-official`)
    and stop.
@@ -25,7 +36,7 @@ Wrap up the task you have been working on:
    `get_task` again if you need to re-read it. Any GitHub-style checkbox left
    as `- [ ]` will block the review transition.
 3. Write a short summary (3-6 sentences): what changed, which files, how it
-   was tested, and anything the reviewer should look at closely.
+   was tested (include the step table `serenedge ci` printed), and anything the reviewer should look at closely.
 4. Environment variables. Scan your diff for new references
    (`process.env.X`, `os.getenv("X")`, `${X}` in compose, `X=` in `.env`
    files). For each one not already in the registry, call `register_env_var`

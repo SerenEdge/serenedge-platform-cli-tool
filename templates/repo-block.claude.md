@@ -14,6 +14,11 @@ This repo is the **{{name}}** project on the SerenEdge delivery platform
 - Build every task with the superpowers plugin (required): executing-plans for
   the steps, test-driven-development for the code, and
   verification-before-completion before `/serenedge:done`.
+- Once the project has `.serenedge/ci.json`, run `serenedge ci` before every
+  submit and read its output (until then run the project's tests as before).
+  After a rebase send-back (note starts `Rebase:`) `serenedge ci --quick` is
+  enough. Never edit CI files (`.serenedge/ci.json`, the local CI script,
+  workflows) unless the task is a CI change.
 - Work only on the branch `start_task` gives you (`task/<KEY>-<slug>`, or
   `issue/<KEY>-<slug>` for an issue task). Never commit to the default branch
   or `dev`. Commit messages are `<KEY>: short imperative summary`, with no AI
@@ -29,6 +34,11 @@ This repo is the **{{name}}** project on the SerenEdge delivery platform
 - Conventions are rules. Follow them exactly.
 - An entry marked unreviewed comes from a task that is not done yet. Use it,
   but the code wins if they disagree.
+- Linked projects: a system admin can link this project to others (a backend
+  and its app, say). Their shared KB entries are read only here. Ask with
+  `/serenedge:linked`, or `ask_linked_kb`, `read_linked_kb` and
+  `linked_endpoints`; cite them as `slug:key`. Their conventions are not
+  rules for this repo.
 
 ### Rules
 

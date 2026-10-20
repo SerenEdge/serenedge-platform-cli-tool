@@ -4,7 +4,7 @@
  * touching disk; `serenedge repo init` does the file IO.
  */
 
-export const REPO_BLOCK_VERSION = 3;
+export const REPO_BLOCK_VERSION = 6;
 export const REPO_BLOCK_END = "<!-- serenedge:end -->";
 const START_RE = /<!-- serenedge:start v(\d+) -->/g;
 

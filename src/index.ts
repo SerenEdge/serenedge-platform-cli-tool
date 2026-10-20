@@ -14,6 +14,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
 import { Command } from "commander";
+import { runCi } from "./ci.js";
 import {
   clearConfig,
   configDir,
@@ -721,6 +722,16 @@ program
   .option("--set <file>", "Post the file's contents as the new body (- for stdin)")
   .option("--url <url>", "Base URL of the SerenEdge app")
   .action(updateCmd);
+program
+  .command("ci")
+  .description("Run this repo's SerenEdge CI on the current commit and upload the report")
+  .option("--quick", "Run quickCommand and mark the report quick")
+  .option("--dry-run", "Run without uploading")
+  .option("--task <key>", "Task key (defaults to the one in the branch name)")
+  .option("--at <sha>", "Run at another commit in a temporary worktree (only with --dry-run)")
+  .action(async (opts: { quick?: boolean; dryRun?: boolean; task?: string; at?: string }) => {
+    process.exit(await runCi({ ...opts, version: cliVersion() }));
+  });
 program
   .command("self-update")
   .description("Pull the latest CLI source, reinstall and rebuild")

@@ -15,7 +15,11 @@ stopping between them, for as long as you can.
    part of the job.
    1. Call `list_my_tasks`. Call `list_ready_tasks` when step 2.3 reaches it.
    2. **Rework first.** If a task has `rework_pending: true`, follow every step
-      of `/serenedge:rework` for it.
+      of `/serenedge:rework` for it. A rebase send-back (the note starts
+      `Rebase:`) is picked up before any other rework: rebase on the base
+      branch, then run `serenedge ci --quick` (a full `serenedge ci` if you
+      resolved conflicts by hand, or if `--quick` fails because
+      `.serenedge/ci.json` has no quickCommand).
    3. **Otherwise pick a task, in this order:**
       1. a task already `in_progress` for you (finish it);
       2. a task `assigned` to you;
@@ -33,6 +37,12 @@ stopping between them, for as long as you can.
       push, PR, `submit_for_review`. Never skip a gate. Waive the KB
       requirement only when the work truly has no KB change, and say why.
    6. Go back to step 2.1 and claim the next `ready` task, until none is left.
+
+   CI limit: run `serenedge ci` before every submit and never edit CI files
+   unless the task is a CI change. If `serenedge ci` has failed 3 times on
+   the same task and the same step fails for the same reason each time, call
+   `flag_blocked` with the failing step and an excerpt of its output, and
+   stop.
 
    Loop limits: stop and call `flag_blocked` with the reason if
    `submit_for_review` fails and the cause is not fixable by the steps in

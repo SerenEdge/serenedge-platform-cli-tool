@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   applyRepoBlock,
@@ -105,5 +106,16 @@ describe("repoBlockState", () => {
 
   it("reads CRLF files", () => {
     expect(repoBlockState(`${block}\n`.replace(/\n/g, "\r\n"))).toBe("current");
+  });
+});
+
+describe("shipped templates", () => {
+  it("is version 6 and both templates tell the agent to run serenedge ci", () => {
+    expect(REPO_BLOCK_VERSION).toBe(6);
+    for (const name of ["repo-block.claude.md", "repo-block.codex.md"]) {
+      const text = readFileSync(new URL(`../templates/${name}`, import.meta.url), "utf8");
+      expect(text).toContain("`serenedge ci`");
+      expect(text).toMatch(/never edit CI\s+files/i);
+    }
   });
 });

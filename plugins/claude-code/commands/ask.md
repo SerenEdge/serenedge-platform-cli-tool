@@ -17,4 +17,10 @@ Neither returns full bodies. Read the rows, decide which single entry actually
 answers the question, then call `read_kb` with its key for the body and its
 neighbourhood. Only read a second entry if the first genuinely did not answer.
 
+`ask_kb` also returns a `linked` group: hits from projects linked to this one.
+If the question is about another system (the backend this app calls, say), or
+this KB has nothing, read the linked hit with `read_linked_kb`, or run
+`/serenedge:linked` for a deeper look. Linked entries are read only and are
+cited as `slug:key`.
+
 Write the answer yourself from what you read, and cite the entry keys you used.

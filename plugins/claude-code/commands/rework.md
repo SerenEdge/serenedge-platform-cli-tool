@@ -23,6 +23,14 @@ hours the rework may take, and the clock runs from the moment you call
 4. Check out the existing task branch from the `git` commands (`git fetch
    origin`, `git switch <branch>`). Do not create a new branch and do not open
    a new PR: pushing to the same branch updates the PR that is already open.
-5. Rework, then run the project's tests.
+5. Rework, then run `serenedge ci` and fix what it reports until it passes.
+   Never edit CI files (`.serenedge/ci.json`, the local CI script,
+   workflows) unless the task is a CI change. For a rebase send-back (the note
+   starts `Rebase:`) rebase on the base branch and run `serenedge ci --quick`
+   (a full run if you resolved conflicts by hand, or if `--quick` fails
+   because `.serenedge/ci.json` has no quickCommand: fall back to a full
+   `serenedge ci`). A Rebase rework has a due
+   date but is never charged as late. A project with no `.serenedge/ci.json`
+   yet keeps running its test suite.
 6. When the notes are all addressed, the user runs `/serenedge done`. It
    resubmits the task for review and the rework clock stops at that moment.

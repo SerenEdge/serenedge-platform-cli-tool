@@ -35,6 +35,7 @@ describe("mcp server", () => {
     expect(tools.map((t) => t.name).sort()).toEqual([
       "approve_and_merge",
       "ask_kb",
+      "ask_linked_kb",
       "ask_task_question",
       "claim_task",
       "comment_review",
@@ -44,6 +45,7 @@ describe("mcp server", () => {
       "flag_blocked",
       "get_context",
       "get_project_summary",
+      "get_release_status",
       "get_review_context",
       "get_review_queue",
       "get_revision",
@@ -52,13 +54,18 @@ describe("mcp server", () => {
       "get_task_thread",
       "ignore_env_name",
       "link_kb",
+      "linked_endpoints",
+      "list_linked_projects",
       "list_my_projects",
       "list_my_tasks",
       "list_ready_tasks",
+      "open_release_pr",
       "propose_kb",
       "query_kb",
       "read_kb",
+      "read_linked_kb",
       "register_env_var",
+      "report_ci_escape",
       "request_changes",
       "serenedge_status",
       "start_rework",
@@ -70,6 +77,91 @@ describe("mcp server", () => {
       "unlink_kb",
       "write_kb",
     ]);
+  });
+
+  it("routes the linked-project tools to the linked agent API", async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = await connectedClient();
+    await client.callTool({ name: "list_linked_projects", arguments: { project: "mobile" } });
+    await client.callTool({
+      name: "ask_linked_kb",
+      arguments: { project: "mobile", question: "auth routes", linked: "backend" },
+    });
+    await client.callTool({
+      name: "read_linked_kb",
+      arguments: { project: "mobile", linked: "backend", key: "auth-api", depth: 2 },
+    });
+    await client.callTool({
+      name: "linked_endpoints",
+      arguments: { project: "mobile", linked: "backend" },
+    });
+    await client.callTool({
+      name: "ask_kb",
+      arguments: { project: "mobile", question: "auth", includeLinked: false },
+    });
+
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
+      "http://api.test/api/agent/linked/projects?project=mobile",
+      "http://api.test/api/agent/linked/search?project=mobile&q=auth+routes&linked=backend",
+      "http://api.test/api/agent/linked/entry?project=mobile&linked=backend&key=auth-api&depth=2",
+      "http://api.test/api/agent/linked/endpoints?project=mobile&linked=backend",
+      "http://api.test/api/agent/kb/ask?project=mobile&q=auth&linked=0",
+    ]);
+  });
+
+  it("routes the release tools to the project's release API (A-241)", async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ release: null }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = await connectedClient();
+    await client.callTool({ name: "get_release_status", arguments: { project: "acme" } });
+    await client.callTool({ name: "open_release_pr", arguments: { project: "acme" } });
+    expect(fetchMock.mock.calls.map((c) => [c[0], (c[1] as { method: string }).method])).toEqual([
+      ["http://api.test/api/agent/projects/acme/release", "GET"],
+      ["http://api.test/api/agent/projects/acme/release", "POST"],
+    ]);
+  });
+
+  it("routes report_ci_escape to the task's ci-escape API with the project (A-242)", async () => {
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ ok: true, fix_task_key: "ACME-7-fix" }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = await connectedClient();
+    await client.callTool({
+      name: "report_ci_escape",
+      arguments: {
+        project: "acme",
+        task: "ACME-7",
+        releasePrUrl: "https://github.com/o/r/pull/3",
+        failingStep: "test",
+        evidence: "fails",
+        fixHours: 4,
+      },
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, { method: string; body: string }];
+    expect(url).toBe("http://api.test/api/agent/tasks/ACME-7/ci-escape");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({
+      project: "acme",
+      releasePrUrl: "https://github.com/o/r/pull/3",
+      failingStep: "test",
+      evidence: "fails",
+      fixHours: 4,
+    });
   });
 
   it("calls the web API with the device token and returns the payload", async () => {
