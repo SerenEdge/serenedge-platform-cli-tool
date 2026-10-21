@@ -5,13 +5,14 @@
  * which is pure JSON work kept here so it is unit-tested without touching disk.
  */
 
-export type JsonAgent = "cursor" | "gemini" | "windsurf" | "opencode" | "copilot";
+export type JsonAgent = "cursor" | "gemini" | "antigravity" | "windsurf" | "opencode" | "copilot";
 
 export const AGENT_NAMES = [
   "claude-code",
   "codex",
   "cursor",
   "gemini",
+  "antigravity",
   "windsurf",
   "opencode",
   "copilot",
@@ -22,6 +23,8 @@ export type AgentName = (typeof AGENT_NAMES)[number];
 const ALIASES: Record<string, AgentName> = {
   claude: "claude-code",
   "gemini-cli": "gemini",
+  agy: "antigravity",
+  "google-antigravity": "antigravity",
   "copilot-vscode": "copilot",
   vscode: "copilot",
   "github-copilot": "copilot",
@@ -53,6 +56,9 @@ export function mcpConfigPath(
       return join(home, ".cursor", "mcp.json");
     case "gemini":
       return join(home, ".gemini", "settings.json");
+    case "antigravity":
+      // One config shared by Antigravity 2.0, the IDE and the CLI.
+      return join(home, ".gemini", "config", "mcp_config.json");
     case "windsurf":
       return join(home, ".codeium", "windsurf", "mcp_config.json");
     case "opencode":

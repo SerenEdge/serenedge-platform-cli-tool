@@ -6,6 +6,8 @@ describe("resolveAgent", () => {
     expect(resolveAgent("cursor")).toBe("cursor");
     expect(resolveAgent(" Gemini-CLI ")).toBe("gemini");
     expect(resolveAgent("vscode")).toBe("copilot");
+    expect(resolveAgent("Antigravity")).toBe("antigravity");
+    expect(resolveAgent("agy")).toBe("antigravity");
     expect(resolveAgent("claude")).toBe("claude-code");
   });
   it("rejects unknown agents", () => {
@@ -26,6 +28,7 @@ describe("mcpConfigPath", () => {
   it("points the others at their home config", () => {
     expect(mcpConfigPath("cursor", "/h", "linux")).toBe("/h/.cursor/mcp.json");
     expect(mcpConfigPath("gemini", "/h", "linux")).toBe("/h/.gemini/settings.json");
+    expect(mcpConfigPath("antigravity", "/h", "linux")).toBe("/h/.gemini/config/mcp_config.json");
     expect(mcpConfigPath("windsurf", "/h", "linux")).toBe("/h/.codeium/windsurf/mcp_config.json");
     expect(mcpConfigPath("opencode", "/h", "linux")).toBe("/h/.config/opencode/opencode.json");
   });
@@ -52,6 +55,14 @@ describe("mergeMcpServer", () => {
     const existing = JSON.stringify({ mcpServers: { serenedge: { command: "mine" } } });
     const r = mergeMcpServer("windsurf", existing, "linux");
     expect(r).toEqual({ next: existing, action: "present" });
+  });
+  it("writes antigravity under mcpServers", () => {
+    const r = mergeMcpServer("antigravity", null, "linux");
+    if ("error" in r) throw new Error(r.error);
+    expect(JSON.parse(r.next).mcpServers.serenedge).toEqual({
+      command: "serenedge",
+      args: ["mcp"],
+    });
   });
   it("uses the opencode and copilot shapes", () => {
     const oc = mergeMcpServer("opencode", null, "linux");
