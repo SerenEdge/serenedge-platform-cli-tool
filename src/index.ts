@@ -14,6 +14,15 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import * as p from "@clack/prompts";
 import { Command } from "commander";
+import {
+  AGENT_NAMES,
+  isJsonAgent,
+  type JsonAgent,
+  mcpConfigPath,
+  mcpSnippet,
+  mergeMcpServer,
+  resolveAgent,
+} from "./agents.js";
 import { runCi } from "./ci.js";
 import {
   clearConfig,
@@ -413,7 +422,10 @@ function projectShowCmd(opts: { json?: boolean }): void {
 /** The files `repo init` manages, and the template each one gets (A-200). */
 const REPO_BLOCK_FILES = [
   { file: "CLAUDE.md", template: "claude" },
+  // AGENTS.md is read by Codex, Cursor, opencode, Windsurf and Copilot.
   { file: "AGENTS.md", template: "codex" },
+  { file: "GEMINI.md", template: "codex" },
+  { file: join(".github", "copilot-instructions.md"), template: "codex" },
 ] as const;
 
 function repoTemplate(name: string): string {
@@ -487,6 +499,7 @@ async function repoInitCmd(opts: { project?: string; dryRun?: boolean }): Promis
       console.log(`${file}: would ${result.action}`);
       continue;
     }
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, result.next);
     console.log(`${file}: ${done[result.action]}`);
   }
@@ -628,13 +641,38 @@ function installCodex(): void {
   );
 }
 
-function install(agent: string): void {
+function installJsonAgent(agent: JsonAgent): void {
+  const path = mcpConfigPath(agent, homedir(), process.platform, process.env.APPDATA);
+  const existing = existsSync(path) ? readFileSync(path, "utf8") : null;
+  const result = mergeMcpServer(agent, existing, process.platform);
+  if ("error" in result) {
+    console.error(`${path} ${result.error}`);
+    console.log("Add this entry to it yourself:");
+    console.log(mcpSnippet(agent, process.platform));
+    process.exit(1);
+  }
+  if (result.action === "present") {
+    console.log(`${path} already has the serenedge MCP server.`);
+  } else {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, result.next);
+    console.log(`Added the serenedge MCP server to ${path}`);
+  }
+  console.log(
+    "\nRestart the agent so it picks up the server. The workflow instructions live in your repo (AGENTS.md, GEMINI.md, .github/copilot-instructions.md). Your Project Head writes them with `serenedge repo init`; check with `serenedge repo status`.",
+  );
+}
+
+function install(input: string): void {
+  const agent = resolveAgent(input);
   if (agent === "claude-code") {
     installClaudeCode();
   } else if (agent === "codex") {
     installCodex();
+  } else if (agent && isJsonAgent(agent)) {
+    installJsonAgent(agent);
   } else {
-    console.error(`Unknown agent "${agent}". Try claude-code or codex.`);
+    console.error(`Unknown agent "${input}". Try ${AGENT_NAMES.join(", ")}.`);
     process.exit(1);
   }
 }
@@ -666,7 +704,7 @@ function selfUpdate() {
     }
   }
   console.log(
-    "Updated. Run `serenedge install claude-code` (or codex) to refresh the command pack.",
+    "Updated. Run `serenedge install claude-code` (or another agent name) to refresh it.",
   );
 }
 
@@ -738,13 +776,15 @@ program
   .action(selfUpdate);
 program
   .command("install")
-  .argument("<agent>", "claude-code | codex")
+  .argument("<agent>", AGENT_NAMES.join(" | "))
   .description("Install the SerenEdge command pack for a coding agent")
   .action(install);
 
 const repo = program
   .command("repo")
-  .description("SerenEdge instructions in this repo's CLAUDE.md and AGENTS.md");
+  .description(
+    "SerenEdge instructions in this repo's agent files (CLAUDE.md, AGENTS.md, GEMINI.md, Copilot)",
+  );
 repo
   .command("init")
   .description("Write or refresh the SerenEdge block (Project Head)")

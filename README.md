@@ -1,6 +1,6 @@
 # serenedge
 
-The CLI and MCP server for the [SerenEdge](https://github.com/SerenEdge/serenedge-platform) delivery platform. It's how your coding agent claims, works and submits tasks: `serenedge` signs your machine in once via a device-flow login, then `serenedge install <agent>` wires an MCP server and a command pack into Claude Code or Codex so your agent can talk to your SerenEdge projects directly.
+The CLI and MCP server for the [SerenEdge](https://github.com/SerenEdge/serenedge-platform) delivery platform. It's how your coding agent claims, works and submits tasks: `serenedge` signs your machine in once via a device-flow login, then `serenedge install <agent>` wires an MCP server and a command pack into Claude Code, Codex, Cursor, Gemini CLI, Windsurf, opencode or VS Code Copilot so your agent can talk to your SerenEdge projects directly.
 
 There's no platform AI. Every generative step (drafting a task, planning a revision, writing a knowledge-base proposal, summarising risk) happens inside your own coding agent, under your own subscription. This tool is a thin, open client: every command is a plain HTTP call to your SerenEdge instance's API, authenticated with a token scoped to your account. It holds no server-side logic and no direct database access.
 
@@ -101,6 +101,8 @@ serenedge install claude-code
 ```
 
 For Codex, run `serenedge install codex` instead: it merges an MCP server block into `~/.codex/config.toml` and prints an `AGENTS.md` snippet describing the claim, work and submit loop to add to your repo.
+
+Other agents (`cursor`, `gemini`, `windsurf`, `opencode`, `copilot` for VS Code) get the `serenedge` MCP server added to their own config file (`~/.cursor/mcp.json`, `~/.gemini/settings.json`, `~/.codeium/windsurf/mcp_config.json`, `~/.config/opencode/opencode.json`, VS Code's user `mcp.json`). Other settings are left alone, and a file with comments is not rewritten: the entry is printed for you to paste. Restart the agent afterwards. Their workflow instructions come from the repo's `AGENTS.md`, `GEMINI.md` and `.github/copilot-instructions.md`, which a Project Head writes with `serenedge repo init`. The slash commands are Claude Code only.
 
 For Claude Code, `install claude-code` copies the plugin locally, registers it as a marketplace, and installs it from there (or prints the two commands if Claude Code isn't on your `PATH`). It registers the `serenedge` MCP server and this command pack:
 
