@@ -248,15 +248,22 @@ export function buildServer(
         summary: z.string(),
         kbWaiverReason: z.string().optional(),
         prUrl: z.string(),
+        dodChecks: z
+          .array(z.object({ item: z.string(), evidence: z.string() }))
+          .optional()
+          .describe(
+            "One entry per definition-of-done item: the item text exactly as written, and the evidence that it is met.",
+          ),
       },
     },
-    async ({ key, summary, kbWaiverReason, prUrl }) => {
+    async ({ key, summary, kbWaiverReason, prUrl, dodChecks }) => {
       const res = await api(`/api/agent/tasks/${encodeURIComponent(key)}/submit`, {
         method: "POST",
         body: {
           summary,
           prUrl,
           ...(kbWaiverReason ? { kbWaiverReason } : {}),
+          ...(dodChecks ? { dodChecks } : {}),
         },
       });
       return res.ok ? textResult(res.data) : errorResult(res.error);
